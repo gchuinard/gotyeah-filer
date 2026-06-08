@@ -17,13 +17,17 @@ services:
       # Volume nommé monté sur /data : fichiers uploadés + base SQLite.
       - filer_data:/data
     networks:
-      - proxy
+      - npm_net
 
 volumes:
   filer_data:
 
 networks:
-  # Réseau externe partagé du homelab (celui de Nginx Proxy Manager).
-  # Adapter le nom à celui réellement utilisé : `docker network ls`.
-  proxy:
+  # Réseau externe que Nginx Proxy Manager possède DÉJÀ : Filer y est rattaché
+  # dès le `up`, NPM le voit sans aucun `docker network connect` manuel (lequel
+  # ne survit pas à une recréation du conteneur NPM — cf. l'incident SSL
+  # gotyeah-stack). Ne JAMAIS laisser le projet créer un `filer_default` isolé.
+  # Vérifier le nom du hub : `docker network ls` (npm_net probable, sinon
+  # nginx-proxy-manager_default).
+  npm_net:
     external: true
