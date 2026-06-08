@@ -4,6 +4,7 @@ import { stat } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { getSession } from "@/lib/auth";
 import { deleteFileCompletely, getFile, storedFilePath } from "@/lib/files";
+import { getShare } from "@/lib/shares";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,8 +21,14 @@ export async function GET(
   const { id } = await params;
   const session = await getSession();
 
-  // Auth d'abord (avant tout lookup) : pas d'oracle d'existence d'id.
-  if (session?.role !== "admin") {
+  // Auth d'abord (avant tout lookup) : admin, OU invité autorisé pour CE fichier
+  // (sa session porte le token d'un partage qui pointe sur ce fichier).
+  let allowed = session?.role === "admin";
+  if (!allowed && session?.role === "guest" && session.share) {
+    const share = getShare(session.share);
+    allowed = !!share && share.file_id === id;
+  }
+  if (!allowed) {
     return new Response("Accès refusé", { status: 403 });
   }
 
