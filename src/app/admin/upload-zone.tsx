@@ -11,7 +11,7 @@ type Upload = {
   error?: string;
 };
 
-export function UploadZone() {
+export function UploadZone({ folderId }: { folderId?: string | null }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploads, setUploads] = useState<Upload[]>([]);
@@ -39,6 +39,7 @@ export function UploadZone() {
           "content-type",
           file.type || "application/octet-stream",
         );
+        if (folderId) xhr.setRequestHeader("x-folder", folderId);
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable) {
             patch(key, { progress: Math.round((e.loaded / e.total) * 100) });
@@ -62,7 +63,7 @@ export function UploadZone() {
         };
         xhr.send(file);
       }),
-    [patch],
+    [patch, folderId],
   );
 
   const handleFiles = useCallback(
