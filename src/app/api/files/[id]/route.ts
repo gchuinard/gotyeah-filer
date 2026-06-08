@@ -3,7 +3,13 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { getSession } from "@/lib/auth";
-import { deleteFileCompletely, getFile, storedFilePath } from "@/lib/files";
+import {
+  deleteFileCompletely,
+  getFile,
+  moveFile,
+  storedFilePath,
+} from "@/lib/files";
+import { getFolder } from "@/lib/folders";
 import { getShare } from "@/lib/shares";
 
 export const runtime = "nodejs";
@@ -80,5 +86,38 @@ export async function DELETE(
   const ok = await deleteFileCompletely(id);
   if (!ok) return new Response("Introuvable", { status: 404 });
 
+  return new Response(null, { status: 204 });
+}
+
+/** Déplace un fichier dans un dossier (admin) : corps JSON { folderId: string|null }. */
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const session = await getSession();
+  if (session?.role !== "admin") {
+    return new Response("Accès refusé", { status: 403 });
+  }
+
+  const { id } = await params;
+  if (!getFile(id)) return new Response("Introuvable", { status: 404 });
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: "JSON invalide." }, { status: 400 });
+  }
+
+  const raw = (body as { folderId?: unknown })?.folderId;
+  let folderId: string | null = null;
+  if (raw != null && raw !== "") {
+    folderId = String(raw);
+    if (!getFolder(folderId)) {
+      return Response.json({ error: "Dossier introuvable." }, { status: 400 });
+    }
+  }
+
+  moveFile(id, folderId);
   return new Response(null, { status: 204 });
 }

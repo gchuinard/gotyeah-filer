@@ -6,6 +6,7 @@ import { pipeline } from "node:stream/promises";
 import { getSession } from "@/lib/auth";
 import { getMaxUploadBytes } from "@/lib/config";
 import { filesDir, insertFile, storedFilePath } from "@/lib/files";
+import { getFolder } from "@/lib/folders";
 
 // Module natif (better-sqlite3) + fs : runtime Node obligatoire.
 export const runtime = "nodejs";
@@ -51,6 +52,12 @@ export async function POST(request: NextRequest) {
 
   const mime = request.headers.get("content-type") || "application/octet-stream";
   const maxBytes = getMaxUploadBytes();
+
+  // Dossier de destination (optionnel, en-tête x-folder), validé contre la base.
+  // Référence invalide/obsolète -> dépôt à la racine plutôt qu'échec de l'upload
+  // (choix délibéré ; le PATCH de déplacement, lui, renvoie 400).
+  const folderHeader = request.headers.get("x-folder");
+  const folderId = folderHeader && getFolder(folderHeader) ? folderHeader : null;
 
   // Pré-rejet si la taille annoncée dépasse déjà la limite.
   const declared = Number(request.headers.get("content-length") || 0);
@@ -109,6 +116,7 @@ export async function POST(request: NextRequest) {
       size: written,
       mime,
       created_at: Date.now(),
+      folder_id: folderId,
     });
   } catch {
     // Évite un fichier orphelin sur disque si l'enregistrement en base échoue.
