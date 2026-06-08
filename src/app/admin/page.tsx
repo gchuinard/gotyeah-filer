@@ -1,10 +1,13 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { logout } from "@/app/actions";
+import { getAppUrl } from "@/lib/config";
 import { listFiles } from "@/lib/files";
+import { listShares, parseAllowedEmails } from "@/lib/shares";
 import { formatBytes, formatDate } from "@/lib/format";
 import { UploadZone } from "@/app/admin/upload-zone";
 import { DeleteButton } from "@/app/admin/delete-button";
+import { ShareManager, type Share } from "@/app/admin/share-manager";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +19,19 @@ export default async function AdminPage() {
   }
 
   const files = listFiles();
+  const appUrl = getAppUrl();
+
+  // Partages regroupés par fichier (une seule requête).
+  const sharesByFile = new Map<string, Share[]>();
+  for (const s of listShares()) {
+    const list = sharesByFile.get(s.file_id) ?? [];
+    list.push({
+      token: s.token,
+      emails: parseAllowedEmails(s),
+      created_at: s.created_at,
+    });
+    sharesByFile.set(s.file_id, list);
+  }
 
   return (
     <div className="flex flex-1 flex-col">
@@ -50,27 +66,31 @@ export default async function AdminPage() {
           ) : (
             <ul className="flex flex-col divide-y divide-zinc-800 overflow-hidden rounded-xl border border-zinc-800">
               {files.map((file) => (
-                <li
-                  key={file.id}
-                  className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm text-zinc-100">
-                      {file.original_name}
-                    </p>
-                    <p className="text-xs text-zinc-500">
-                      {formatBytes(file.size)} · {formatDate(file.created_at)}
-                    </p>
+                <li key={file.id} className="flex flex-col gap-3 px-4 py-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm text-zinc-100">
+                        {file.original_name}
+                      </p>
+                      <p className="text-xs text-zinc-500">
+                        {formatBytes(file.size)} · {formatDate(file.created_at)}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <a
+                        href={`/api/files/${file.id}`}
+                        className="rounded-lg bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 transition-colors hover:bg-white"
+                      >
+                        Télécharger
+                      </a>
+                      <DeleteButton id={file.id} name={file.original_name} />
+                    </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <a
-                      href={`/api/files/${file.id}`}
-                      className="rounded-lg bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 transition-colors hover:bg-white"
-                    >
-                      Télécharger
-                    </a>
-                    <DeleteButton id={file.id} name={file.original_name} />
-                  </div>
+                  <ShareManager
+                    fileId={file.id}
+                    appUrl={appUrl}
+                    initialShares={sharesByFile.get(file.id) ?? []}
+                  />
                 </li>
               ))}
             </ul>
