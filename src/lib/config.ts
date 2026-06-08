@@ -48,3 +48,9 @@ export function getMaxUploadBytes(): number {
   const safeMb = Number.isFinite(mb) && mb > 0 ? mb : 1024;
   return Math.floor(safeMb * 1024 * 1024);
 }
+
+/** URL publique de l'app (`APP_URL`), sans slash final. Vide si non définie. */
+export function getAppUrl(): string {
+  const url = process.env.APP_URL;
+  return url && url.length > 0 ? url.replace(/\/+$/, "") : "";
+}
