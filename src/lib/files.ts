@@ -10,6 +10,8 @@ export type FileRow = {
   size: number;
   mime: string | null;
   created_at: number;
+  /** Dossier de rangement, ou null à la racine. */
+  folder_id: string | null;
 };
 
 /** Répertoire physique des fichiers stockés. */
@@ -40,10 +42,19 @@ export function getFile(id: string): FileRow | undefined {
 export function insertFile(row: FileRow): void {
   getDb()
     .prepare(
-      `INSERT INTO files (id, stored_name, original_name, size, mime, created_at)
-       VALUES (@id, @stored_name, @original_name, @size, @mime, @created_at)`,
+      `INSERT INTO files (id, stored_name, original_name, size, mime, created_at, folder_id)
+       VALUES (@id, @stored_name, @original_name, @size, @mime, @created_at, @folder_id)`,
     )
     .run(row);
+}
+
+/** Déplace un fichier dans un dossier (ou à la racine si null). */
+export function moveFile(id: string, folderId: string | null): boolean {
+  return (
+    getDb()
+      .prepare("UPDATE files SET folder_id = ? WHERE id = ?")
+      .run(folderId, id).changes > 0
+  );
 }
 
 /**

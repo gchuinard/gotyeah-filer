@@ -15,6 +15,26 @@ const globalForDb = globalThis as unknown as {
   __filerDb?: Database.Database;
 };
 
+/**
+ * Ajoute une colonne si elle est absente (évolution de schéma sans framework).
+ * ⚠️ `table`/`column`/`type` sont interpolés dans le SQL (SQLite n'accepte pas
+ * de bind pour les identifiants) : ne JAMAIS y passer d'entrée utilisateur,
+ * uniquement des littéraux constants du code.
+ */
+function ensureColumn(
+  db: Database.Database,
+  table: string,
+  column: string,
+  type: string,
+): void {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as {
+    name: string;
+  }[];
+  if (!cols.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
+}
+
 function createDb(): Database.Database {
   const dir = getDataDir();
   mkdirSync(dir, { recursive: true });
@@ -30,7 +50,8 @@ function createDb(): Database.Database {
       original_name TEXT NOT NULL,
       size          INTEGER NOT NULL,
       mime          TEXT,
-      created_at    INTEGER NOT NULL
+      created_at    INTEGER NOT NULL,
+      folder_id     TEXT
     );
 
     CREATE TABLE IF NOT EXISTS shares (
@@ -40,8 +61,18 @@ function createDb(): Database.Database {
       created_at     INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS folders (
+      id         TEXT PRIMARY KEY,
+      name       TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_shares_file_id ON shares(file_id);
   `);
+
+  // Pour les bases créées avant l'ajout des dossiers : colonne idempotente.
+  ensureColumn(db, "files", "folder_id", "TEXT");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_files_folder_id ON files(folder_id);");
 
   return db;
 }
