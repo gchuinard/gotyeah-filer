@@ -1,14 +1,23 @@
-export default function Home() {
+import { redirect } from "next/navigation";
+import { getSession } from "@/lib/auth";
+import { LoginForm } from "@/app/login-form";
+
+export default async function Home() {
+  const session = await getSession();
+  if (session?.role === "admin") {
+    redirect("/admin");
+  }
+
   return (
-    <main className="flex flex-1 flex-col items-center justify-center px-6 text-center">
-      <div className="flex flex-col items-center gap-3">
-        <h1 className="text-4xl font-semibold tracking-tight">Filer</h1>
-        <p className="max-w-sm text-balance text-zinc-400">
-          Partage de fichiers — espace familial.
-        </p>
-        <p className="mt-6 rounded-full border border-zinc-800 bg-zinc-900/60 px-4 py-1.5 text-sm text-zinc-500">
-          Scaffold en place — la porte d&apos;accès arrive (Phase 2).
-        </p>
+    <main className="flex flex-1 flex-col items-center justify-center px-6 py-16">
+      <div className="flex w-full max-w-sm flex-col items-center gap-6 text-center">
+        <div className="flex flex-col items-center gap-2">
+          <h1 className="text-4xl font-semibold tracking-tight">Filer</h1>
+          <p className="text-balance text-zinc-400">
+            Saisis ton adresse e-mail pour accéder à l&apos;espace.
+          </p>
+        </div>
+        <LoginForm />
       </div>
     </main>
   );
