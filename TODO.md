@@ -1,6 +1,6 @@
 # Filer — Suivi des phases
 
-> Phase courante : **Phase 3 (Fichiers admin) terminée — en attente de validation (gate) avant la Phase 4.**
+> Phase courante : **Phase 4 (Partages) terminée — en attente de validation (gate) avant la Phase 5.**
 > Règle : à la fin de chaque phase → stop, résumé, attendre le feu vert.
 
 ## Phase 1 — Scaffold ✅
@@ -29,12 +29,12 @@
 - [x] Download admin (`GET /api/files/[id]`, streaming, Content-Disposition: attachment, nosniff)
 - → **GATE** : validation avant Phase 4
 
-## Phase 4 — Partages
-- [ ] Création d'un partage : 1+ emails autorisés → token → lien `/s/{token}` + bouton « Copier le lien »
-- [ ] Page invité `/s/{token}` : saisie email, contrôle d'accès, affichage fichier (nom, taille) + Télécharger, sinon refus sobre
-- [ ] Contrôle d'accès au download par partage (admin OU invité autorisé pour CE partage)
-- [ ] (Bonus) Lister / révoquer les partages
-- → **GATE**
+## Phase 4 — Partages ✅
+- [x] Création d'un partage : 1+ emails autorisés → token → lien `/s/{token}` + bouton « Copier le lien »
+- [x] Page invité `/s/{token}` : saisie email, contrôle d'accès, affichage fichier (nom, taille) + Télécharger, sinon refus sobre (nom du fichier non révélé avant accès)
+- [x] Contrôle d'accès au download par partage (admin OU invité autorisé pour CE partage, scopé au fichier)
+- [x] (Bonus) Lister / révoquer les partages
+- → **GATE** : validation avant Phase 5
 
 ## Phase 5 — Finitions UI
 - [ ] Dark mode cohérent, responsive / mobile-first
