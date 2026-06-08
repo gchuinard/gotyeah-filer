@@ -1,0 +1,29 @@
+# Filer — un seul service, exposé (pas de ports publiés) et rattaché au
+# réseau Docker externe partagé du homelab pour Nginx Proxy Manager.
+
+services:
+  filer:
+    build: .
+    image: filer:latest
+    container_name: filer
+    restart: unless-stopped
+    # Charge ADMIN_EMAILS, SESSION_SECRET, MAX_UPLOAD_MB, APP_URL (cf. .env.example).
+    env_file: .env
+    # `expose` (et non `ports`) : le port n'est visible que sur le réseau Docker,
+    # Nginx Proxy Manager s'en charge pour l'exposition publique.
+    expose:
+      - "3000"
+    volumes:
+      # Volume nommé monté sur /data : fichiers uploadés + base SQLite.
+      - filer_data:/data
+    networks:
+      - proxy
+
+volumes:
+  filer_data:
+
+networks:
+  # Réseau externe partagé du homelab (celui de Nginx Proxy Manager).
+  # Adapter le nom à celui réellement utilisé : `docker network ls`.
+  proxy:
+    external: true

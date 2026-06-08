@@ -1,0 +1,29 @@
+# Dépendances et artefacts (réinstallés / rebâtis dans l'image)
+node_modules
+.next
+out
+build
+
+# Données runtime — jamais dans l'image
+data
+/data
+
+# Git & secrets
+.git
+.gitignore
+.env
+.env.*
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Outillage / divers
+.claude
+.vscode
+.idea
+*.log
+npm-debug.log*
+.DS_Store
+coverage
