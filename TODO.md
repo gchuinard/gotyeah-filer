@@ -1,6 +1,6 @@
 # Filer — Suivi des phases
 
-> Phase courante : **Phase 2 (Porte & sessions) terminée — en attente de validation (gate) avant la Phase 3.**
+> Phase courante : **Phase 3 (Fichiers admin) terminée — en attente de validation (gate) avant la Phase 4.**
 > Règle : à la fin de chaque phase → stop, résumé, attendre le feu vert.
 
 ## Phase 1 — Scaffold ✅
@@ -20,14 +20,14 @@
 - [x] Protection des routes admin via `proxy.ts` (ex-middleware, renommé en Next 16)
 - → **GATE** : validation avant Phase 3
 
-## Phase 3 — Fichiers (admin)
-- [ ] Initialisation SQLite au boot (tables files, shares si absentes)
-- [ ] Upload via Route Handler en streaming (`app/api/upload/route.ts`), limite `MAX_UPLOAD_MB`
-- [ ] Stockage `/data/files` sous nom unique (crypto.randomUUID), nom d'origine en base
-- [ ] Liste des fichiers (nom d'origine, taille, date)
-- [ ] Suppression d'un fichier (+ ses partages)
-- [ ] Download admin (Route Handler streaming, Content-Disposition: attachment)
-- → **GATE**
+## Phase 3 — Fichiers (admin) ✅
+- [x] Initialisation SQLite au boot (tables files, shares si absentes)
+- [x] Upload via Route Handler en streaming (`app/api/upload/route.ts`), limite `MAX_UPLOAD_MB`
+- [x] Stockage `/data/files` sous nom unique (crypto.randomUUID), nom d'origine en base
+- [x] Liste des fichiers (nom d'origine, taille, date) + drag & drop + progression
+- [x] Suppression d'un fichier (+ ses partages) — `DELETE /api/files/[id]`
+- [x] Download admin (`GET /api/files/[id]`, streaming, Content-Disposition: attachment, nosniff)
+- → **GATE** : validation avant Phase 4
 
 ## Phase 4 — Partages
 - [ ] Création d'un partage : 1+ emails autorisés → token → lien `/s/{token}` + bouton « Copier le lien »
@@ -42,6 +42,9 @@
 - → **GATE**
 
 ## Phase 6 — Déploiement
+- [x] CI/CD GitHub Actions (build + déploiement SSH vers le Pi) — fait en avance.
+      Prérequis côté Pi : secrets `SSH_HOST`/`SSH_USER`/`SSH_KEY`, repo cloné dans
+      `/home/pi/sites/gotyeah-filer`, `.env` présent, réseau `npm_net` existant.
 - [ ] Build de l'image Docker
 - [ ] README : docker-compose, variables d'env, config Nginx Proxy Manager, note Cloudflare (limite 100 Mo)
 - → **GATE finale**
