@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { getSession } from "@/lib/auth";
 import { getFile } from "@/lib/files";
 import { formatBytes, formatDate } from "@/lib/format";
@@ -5,6 +6,7 @@ import { getShare } from "@/lib/shares";
 import { ShareGate } from "@/app/s/[token]/share-gate";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Filer · Partage" };
 
 function Centered({ children }: { children: React.ReactNode }) {
   return (
