@@ -1,6 +1,6 @@
 # Filer — Suivi des phases
 
-> Phase courante : **Phase 4 (Partages) terminée — en attente de validation (gate) avant la Phase 5.**
+> Phase courante : **Phase 5 (Finitions UI + dossiers) terminée — en attente de validation (gate) avant la Phase 6.**
 > Règle : à la fin de chaque phase → stop, résumé, attendre le feu vert.
 
 ## Phase 1 — Scaffold ✅
@@ -37,9 +37,10 @@
 - → **GATE** : validation avant Phase 5
 
 ## Phase 5 — Finitions UI
-- [ ] Dark mode cohérent, responsive / mobile-first
-- [ ] Feedbacks : upload en cours, « lien copié », accès refusé, états vides
-- → **GATE**
+- [x] Dark mode cohérent, responsive / mobile-first
+- [x] Feedbacks : upload en cours, « lien copié », accès refusé, états vides (+ 404 sobre, titres de page)
+- [x] (Ajout demandé) Dossiers : créer / renommer / supprimer, déplacer un fichier, upload dans le dossier actif, filtre par dossier
+- → **GATE** : validation avant Phase 6
 
 ## Phase 6 — Déploiement
 - [x] CI/CD GitHub Actions (build + déploiement SSH vers le Pi) — fait en avance.
