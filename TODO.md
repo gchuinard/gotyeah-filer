@@ -1,7 +1,7 @@
 # Filer — Suivi des phases
 
-> Phase courante : **Phase 5 (Finitions UI + dossiers) terminée — en attente de validation (gate) avant la Phase 6.**
-> Règle : à la fin de chaque phase → stop, résumé, attendre le feu vert.
+> **Toutes les phases (1 → 6) terminées.** Le projet est prêt à déployer.
+> Règle de travail : à la fin de chaque phase → stop, résumé, attendre le feu vert.
 
 ## Phase 1 — Scaffold ✅
 - [x] Next.js 16 + TypeScript + Tailwind v4 (App Router, src/, alias @/*)
@@ -42,10 +42,13 @@
 - [x] (Ajout demandé) Dossiers : créer / renommer / supprimer, déplacer un fichier, upload dans le dossier actif, filtre par dossier
 - → **GATE** : validation avant Phase 6
 
-## Phase 6 — Déploiement
+## Phase 6 — Déploiement ✅
 - [x] CI/CD GitHub Actions (build + déploiement SSH vers le Pi) — fait en avance.
       Prérequis côté Pi : secrets `SSH_HOST`/`SSH_USER`/`SSH_KEY`, repo cloné dans
       `/home/pi/sites/gotyeah-filer`, `.env` présent, réseau `npm_net` existant.
-- [ ] Build de l'image Docker
-- [ ] README : docker-compose, variables d'env, config Nginx Proxy Manager, note Cloudflare (limite 100 Mo)
-- → **GATE finale**
+- [x] Artefact `standalone` validé : binaire natif better-sqlite3 tracé + serveur de
+      prod testé de bout en bout (DB/upload/download/dossiers/partages).
+      (Le build de l'image Docker se fait sur le Pi : Docker absent du WSL de dev.)
+- [x] README complet : env, docker-compose, Nginx Proxy Manager, Cloudflare (100 Mo),
+      prérequis Pi, secrets CI/CD, sauvegarde, sécurité.
+- → **GATE finale** : validation

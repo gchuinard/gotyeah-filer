@@ -1,36 +1,152 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Filer
 
-## Getting Started
+Petit service perso d'**auto-hébergement de partage de fichiers** (pour remplacer
+WeTransfer / Grosfichiers dans un cadre familial). On dépose des fichiers, on les
+range dans des dossiers, puis on les partage à des proches via un lien `/s/{token}`.
 
-First, run the development server:
+> Le **pourquoi / quoi** est dans [`CONTEXT.md`](./CONTEXT.md), les **conventions de
+> code** dans [`CLAUDE.md`](./CLAUDE.md), le **suivi des phases** dans [`TODO.md`](./TODO.md).
+
+## Fonctionnalités
+
+- **Admin** (emails listés dans `ADMIN_EMAILS`) : liste des fichiers, upload (drag & drop,
+  **streaming**, gros fichiers OK), **dossiers** pour ranger, création de **partages**
+  (1+ emails autorisés → lien + « copier »), révocation, suppression, download.
+- **Invité** : via un lien `/s/{token}`, saisit son email ; s'il est autorisé pour ce
+  partage (ou s'il est admin), il accède **au seul fichier de ce partage** (consultation
+  + download). Sinon, accès refusé.
+- **Pas de comptes, pas de mot de passe, aucun email envoyé.** L'accès est une simple
+  « porte » (email comparé à une liste) — compromis assumé, cf. `CONTEXT.md`.
+
+## Stack
+
+Next.js 16 (App Router, TypeScript) · Tailwind CSS v4 · better-sqlite3 (un fichier `.db`,
+schéma créé au boot) · stockage sur le système de fichiers · Docker (`output: 'standalone'`).
+
+## Variables d'environnement
+
+| Variable         | Requis | Description                                                                 |
+| ---------------- | :----: | --------------------------------------------------------------------------- |
+| `ADMIN_EMAILS`   |   ✅   | Emails admin, séparés par des virgules (comparaison insensible casse/espaces). |
+| `SESSION_SECRET` |   ✅   | Secret de signature des cookies de session. Long et aléatoire.              |
+| `APP_URL`        |   ✅   | URL publique (ex. `https://filer.gautierchuinard.com`) — sert à bâtir les liens de partage. |
+| `MAX_UPLOAD_MB`  |   —    | Taille max d'un upload, en Mo (défaut `1024`).                              |
+| `DATA_DIR`       |   —    | Répertoire des données (défaut `/data`). À ne définir qu'en dev local.      |
+
+Générer un secret : `openssl rand -base64 48`. Voir [`.env.example`](./.env.example).
+Ne **jamais** committer `.env`.
+
+## Développement local
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+cp .env.example .env      # puis adapter ; en local : DATA_DIR=./data
+npm run dev               # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Les données locales (fichiers + `filer.db`) vivent dans `./data` (gitignoré).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Déploiement (Raspberry Pi / Docker)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+L'app tourne dans **un seul conteneur**, exposée via **Nginx Proxy Manager** (NPM),
+derrière **Cloudflare** (Full Strict). Image multi-stage, base Debian slim (Node 24),
+sortie `standalone`.
 
-## Learn More
+### Prérequis sur le Pi
 
-To learn more about Next.js, take a look at the following resources:
+- Docker + Docker Compose v2.
+- Le **réseau Docker externe partagé** que NPM possède déjà — ici `npm_net`.
+  Vérifier : `docker network ls`. S'il n'existe pas, le créer et y rattacher NPM :
+  ```bash
+  docker network create npm_net
+  ```
+  > **Important (convention homelab)** : on rattache Filer à ce réseau externe
+  > directement dans le `docker-compose.yml`. On ne fait **jamais** un
+  > `docker network connect` manuel — il ne survit pas à une recréation du conteneur
+  > NPM (c'est ce qui avait cassé le SSL d'un autre service).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Mise en route
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+# 1. cloner au chemin attendu par le CI/CD
+git clone git@github.com:gchuinard/gotyeah-filer.git /home/pi/sites/gotyeah-filer
+cd /home/pi/sites/gotyeah-filer
 
-## Deploy on Vercel
+# 2. créer le .env de prod
+cat > .env <<'EOF'
+ADMIN_EMAILS=gautierchuinard@gmail.com
+SESSION_SECRET=<openssl rand -base64 48>
+APP_URL=https://filer.gautierchuinard.com
+MAX_UPLOAD_MB=1024
+EOF
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+# 3. build + démarrage
+docker compose up -d --build
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Le service `filer` **expose** le port `3000` (uniquement sur le réseau Docker, pas de
+`ports` publiés) et monte le volume nommé `filer_data` sur `/data` (fichiers + SQLite).
+
+### Nginx Proxy Manager
+
+Créer un **Proxy Host** :
+
+- **Domain** : `filer.gautierchuinard.com`
+- **Forward Hostname** : `filer` (le nom du conteneur, joignable sur `npm_net`)
+- **Forward Port** : `3000` · **Scheme** : `http`
+- **SSL** : certificat Let's Encrypt (ou origin Cloudflare), **Force SSL** activé.
+- **Advanced** → augmenter la limite d'upload de NPM, sinon les gros fichiers sont coupés :
+  ```nginx
+  client_max_body_size 0;
+  ```
+
+### Cloudflare (Full Strict)
+
+Le proxy Cloudflare limite le **corps des requêtes à 100 Mo** (plans Free/Pro).
+Si des fichiers **> 100 Mo** sont attendus (bandes-son WAV…), deux options :
+
+- passer `filer.gautierchuinard.com` en **DNS-only (grey cloud)** pour bypasser le proxy, ou
+- prévoir un upload **chunké**.
+
+Sinon, RAS.
+
+## CI/CD (déploiement automatique)
+
+[`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml) : à chaque **push sur
+`main`**, un job `build` (lint + build) puis un job `deploy` qui se connecte au Pi en SSH et
+exécute :
+
+```bash
+cd /home/pi/sites/gotyeah-filer
+git pull --ff-only origin main
+docker compose up -d --build
+docker image prune -f
+```
+
+**Secrets GitHub à créer** (repo → *Settings → Secrets and variables → Actions*) :
+
+| Secret     | Valeur                                            |
+| ---------- | ------------------------------------------------- |
+| `SSH_HOST` | Hôte / IP du Pi                                   |
+| `SSH_USER` | Utilisateur SSH (ex. `pi`)                        |
+| `SSH_KEY`  | Clé privée SSH (PEM) ayant accès au Pi            |
+
+> Prérequis : le repo doit déjà être cloné dans `/home/pi/sites/gotyeah-filer`,
+> le `.env` présent, et le réseau `npm_net` existant. Tant que ce n'est pas le cas,
+> le job `deploy` échoue (le job `build`, lui, passe).
+
+## Sauvegarde
+
+Tout l'état persistant est dans le volume `filer_data` (monté sur `/data`) :
+
+- `/data/files/` — les fichiers uploadés (nommés par UUID),
+- `/data/filer.db` (+ `-wal`, `-shm`) — la base SQLite (métadonnées, dossiers, partages).
+
+Sauvegarder ce volume suffit à tout restaurer.
+
+## Sécurité (rappel)
+
+L'accès est une **porte**, pas une authentification réelle : n'importe qui connaissant un
+email autorisé peut se faire passer pour lui (cf. `CONTEXT.md`). C'est assumé pour un usage
+familial. Garder `SESSION_SECRET` **long et secret** ; le **changer invalide toutes les
+sessions** en cours (utile pour révoquer un accès admin retiré de `ADMIN_EMAILS`).
