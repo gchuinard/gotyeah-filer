@@ -1,6 +1,6 @@
 # Filer — Suivi des phases
 
-> Phase courante : **Phase 1 (Scaffold) terminée — en attente de validation (gate) avant la Phase 2.**
+> Phase courante : **Phase 2 (Porte & sessions) terminée — en attente de validation (gate) avant la Phase 3.**
 > Règle : à la fin de chaque phase → stop, résumé, attendre le feu vert.
 
 ## Phase 1 — Scaffold ✅
@@ -13,12 +13,12 @@
 - [x] UI de base nettoyée (FR, dark, placeholder sobre)
 - → **GATE** : validation avant Phase 2
 
-## Phase 2 — Porte & sessions
-- [ ] Page d'accueil : saisie email
-- [ ] Vérification contre `ADMIN_EMAILS` (normalisation minuscules + trim)
-- [ ] Cookie de session signé, httpOnly (secret `SESSION_SECRET`), ~30 jours, contenant email + rôle
-- [ ] Protection des routes admin via middleware
-- → **GATE**
+## Phase 2 — Porte & sessions ✅
+- [x] Page d'accueil : saisie email (+ espace admin placeholder avec déconnexion)
+- [x] Vérification contre `ADMIN_EMAILS` (normalisation minuscules + trim)
+- [x] Cookie de session signé httpOnly — JWT HS256 via `jose` (secret `SESSION_SECRET`), ~30 j, `sameSite=lax`, payload email + rôle
+- [x] Protection des routes admin via `proxy.ts` (ex-middleware, renommé en Next 16)
+- → **GATE** : validation avant Phase 3
 
 ## Phase 3 — Fichiers (admin)
 - [ ] Initialisation SQLite au boot (tables files, shares si absentes)
