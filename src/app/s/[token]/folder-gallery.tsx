@@ -11,7 +11,9 @@ import {
   type MediaFilter,
 } from "@/lib/media";
 import { useMultiSelect } from "@/lib/use-multi-select";
+import { sortFiles, type SortField, type SortDir } from "@/lib/sort";
 import { FilterChips } from "@/components/filter-chips";
+import { SortControl } from "@/components/sort-control";
 
 export type GalleryFile = {
   id: string;
@@ -60,13 +62,19 @@ export function FolderGallery({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<MediaFilter>("all");
   const [query, setQuery] = useState("");
+  const [sortField, setSortField] = useState<SortField>("date");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const q = query.trim().toLowerCase();
   const searched = q
     ? files.filter((f) => f.original_name.toLowerCase().includes(q))
     : files;
   const counts = categoryCounts(searched);
-  const visible = searched.filter((f) => matchesFilter(f, filter));
+  const visible = sortFiles(
+    searched.filter((f) => matchesFilter(f, filter)),
+    sortField,
+    sortDir,
+  );
 
   const { checked, allChecked, toggleAll, clear, checkboxProps } =
     useMultiSelect(visible);
@@ -149,6 +157,12 @@ export function FolderGallery({
               </p>
             ) : (
               <>
+            <SortControl
+              field={sortField}
+              dir={sortDir}
+              onField={setSortField}
+              onToggleDir={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+            />
             <div className="mb-2 flex items-center justify-between gap-2">
               <label className="flex items-center gap-2 text-xs font-medium text-zinc-500">
                 <input
