@@ -9,12 +9,16 @@ range dans des dossiers, puis on les partage à des proches via un lien `/s/{tok
 
 ## Fonctionnalités
 
-- **Admin** (emails listés dans `ADMIN_EMAILS`) : liste des fichiers, upload (drag & drop,
-  **streaming**, gros fichiers OK), **dossiers** pour ranger, création de **partages**
-  (1+ emails autorisés → lien + « copier »), révocation, suppression, download.
+- **Admin** (emails listés dans `ADMIN_EMAILS`) : liste des fichiers (avec **aperçu des
+  images** et **compteur de téléchargements**), upload (drag & drop, **streaming**, gros
+  fichiers OK), **dossiers** pour ranger, création de **partages** d'un fichier **ou d'un
+  dossier entier** (1+ emails autorisés → lien + « copier »), révocation, suppression, download.
 - **Invité** : via un lien `/s/{token}`, saisit son email ; s'il est autorisé pour ce
-  partage (ou s'il est admin), il accède **au seul fichier de ce partage** (consultation
-  + download). Sinon, accès refusé.
+  partage (ou s'il est admin), il accède au contenu partagé. Pour un **partage de fichier**,
+  il voit le fichier (aperçu si image) + download. Pour un **partage de dossier**, il voit la
+  **liste des fichiers** du dossier (chacun téléchargeable) + un bouton **« Tout télécharger
+  (.zip) »**. Sinon, accès refusé. Un partage de dossier est « vivant » : il suit le contenu
+  actuel du dossier.
 - **Pas de comptes, pas de mot de passe, aucun email envoyé.** L'accès est une simple
   « porte » (email comparé à une liste) — compromis assumé, cf. `CONTEXT.md`.
 

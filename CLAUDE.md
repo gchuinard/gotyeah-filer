@@ -25,10 +25,10 @@ Guide à destination d'un assistant IA (Claude Code) travaillant dans ce repo.
 - **Download** : Route Handler dédiée, streaming, `Content-Disposition: attachment`, **APRÈS** contrôle de session (admin, ou invité autorisé pour ce partage précis).
 
 ## Schéma SQLite (créé au démarrage si absent)
-- `files(id TEXT PK, stored_name TEXT, original_name TEXT, size INTEGER, mime TEXT, created_at INTEGER, folder_id TEXT /* NULL = racine */)`
-- `shares(token TEXT PK, file_id TEXT, allowed_emails TEXT /* JSON array */, created_at INTEGER)`
+- `files(id TEXT PK, stored_name TEXT, original_name TEXT, size INTEGER, mime TEXT, created_at INTEGER, folder_id TEXT /* NULL = racine */, download_count INTEGER DEFAULT 0)`
+- `shares(token TEXT PK, file_id TEXT /* NULL si partage de dossier */, folder_id TEXT /* NULL si partage de fichier */, allowed_emails TEXT /* JSON array */, created_at INTEGER)` — **un partage vise EXACTEMENT un fichier OU un dossier** (`CHECK ((file_id IS NOT NULL) <> (folder_id IS NOT NULL))`).
 - `folders(id TEXT PK, name TEXT, created_at INTEGER)`
-- Évolution de schéma **sans framework de migration** : colonnes ajoutées au boot de façon idempotente (`ensureColumn` → `ALTER TABLE … ADD COLUMN` si absente).
+- Évolution de schéma **sans framework de migration** : colonnes ajoutées au boot de façon idempotente (`ensureColumn` → `ALTER TABLE … ADD COLUMN` si absente). Cas particulier : passer `shares.file_id` de `NOT NULL` à nullable (ajout du partage de dossier) **n'est pas faisable par ALTER** → reconstruction idempotente de la table au boot (`ensurePolymorphicShares`, ne s'exécute que sur une base historique, conserve les partages).
 
 ## Variables d'environnement
 - `ADMIN_EMAILS` (liste séparée par virgules), `SESSION_SECRET`, `MAX_UPLOAD_MB`, `APP_URL`.
