@@ -12,6 +12,8 @@ export type FileRow = {
   created_at: number;
   /** Dossier de rangement, ou null à la racine. */
   folder_id: string | null;
+  /** Nombre de téléchargements (les aperçus inline ne comptent pas). */
+  download_count: number;
 };
 
 /** Répertoire physique des fichiers stockés. */
@@ -38,14 +40,23 @@ export function getFile(id: string): FileRow | undefined {
     | undefined;
 }
 
-/** Enregistre un fichier en base. */
-export function insertFile(row: FileRow): void {
+/** Enregistre un fichier en base (download_count démarre à 0 via le défaut SQL). */
+export function insertFile(row: Omit<FileRow, "download_count">): void {
   getDb()
     .prepare(
       `INSERT INTO files (id, stored_name, original_name, size, mime, created_at, folder_id)
        VALUES (@id, @stored_name, @original_name, @size, @mime, @created_at, @folder_id)`,
     )
     .run(row);
+}
+
+/** Incrémente le compteur de téléchargements d'un fichier. */
+export function incrementDownloadCount(id: string): void {
+  getDb()
+    .prepare(
+      "UPDATE files SET download_count = COALESCE(download_count, 0) + 1 WHERE id = ?",
+    )
+    .run(id);
 }
 
 /** Déplace un fichier dans un dossier (ou à la racine si null). */

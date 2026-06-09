@@ -3,38 +3,38 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { getSession } from "@/lib/auth";
+import { canAccessFile } from "@/lib/access";
 import {
   deleteFileCompletely,
   getFile,
+  incrementDownloadCount,
   moveFile,
   storedFilePath,
 } from "@/lib/files";
 import { getFolder } from "@/lib/folders";
-import { getShare } from "@/lib/shares";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Download en streaming, après contrôle d'accès.
- * Phase 3 : accès admin uniquement. La Phase 4 étendra l'accès à l'invité
- * autorisé pour le partage de ce fichier précis.
+ * Sert un fichier en streaming, après contrôle d'accès (admin OU invité
+ * autorisé pour le partage de ce fichier précis — cf. `canAccessFile`).
+ *
+ * Deux modes :
+ * - `?inline=1` : aperçu (Content-Disposition: inline, cacheable côté client),
+ *   utilisé pour les vignettes/prévisualisations → NE compte PAS comme un
+ *   téléchargement.
+ * - défaut : pièce jointe (attachment, no-store) → incrémente le compteur.
  */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
   const session = await getSession();
 
-  // Auth d'abord (avant tout lookup) : admin, OU invité autorisé pour CE fichier
-  // (sa session porte le token d'un partage qui pointe sur ce fichier).
-  let allowed = session?.role === "admin";
-  if (!allowed && session?.role === "guest" && session.share) {
-    const share = getShare(session.share);
-    allowed = !!share && share.file_id === id;
-  }
-  if (!allowed) {
+  // Auth d'abord (avant tout lookup) pour ne pas révéler l'existence d'un id.
+  if (!canAccessFile(session, id)) {
     return new Response("Accès refusé", { status: 403 });
   }
 
@@ -49,6 +49,8 @@ export async function GET(
     return new Response("Fichier manquant sur le disque", { status: 404 });
   }
 
+  const inline = request.nextUrl.searchParams.has("inline");
+
   const body = Readable.toWeb(
     createReadStream(path),
   ) as unknown as ReadableStream<Uint8Array>;
@@ -58,16 +60,22 @@ export async function GET(
     .replace(/[^\x20-\x7e]/g, "_")
     .replace(/"/g, "'");
 
+  // Seul un vrai téléchargement (pas un aperçu inline) incrémente le compteur.
+  if (!inline) {
+    incrementDownloadCount(id);
+  }
+
   return new Response(body, {
     headers: {
       "Content-Type": file.mime || "application/octet-stream",
       "Content-Length": String(size),
-      "Content-Disposition": `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(
+      "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(
         file.original_name,
       )}`,
       // Le MIME est fourni par le client à l'upload : on empêche le sniffing.
       "X-Content-Type-Options": "nosniff",
-      "Cache-Control": "private, no-store",
+      // Aperçu : cacheable brièvement côté client. Download : jamais stocké.
+      "Cache-Control": inline ? "private, max-age=300" : "private, no-store",
     },
   });
 }

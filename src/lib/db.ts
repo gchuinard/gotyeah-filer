@@ -51,7 +51,8 @@ function createDb(): Database.Database {
       size          INTEGER NOT NULL,
       mime          TEXT,
       created_at    INTEGER NOT NULL,
-      folder_id     TEXT
+      folder_id     TEXT,
+      download_count INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS shares (
@@ -73,6 +74,9 @@ function createDb(): Database.Database {
   // Pour les bases créées avant l'ajout des dossiers : colonne idempotente.
   ensureColumn(db, "files", "folder_id", "TEXT");
   db.exec("CREATE INDEX IF NOT EXISTS idx_files_folder_id ON files(folder_id);");
+
+  // Compteur de téléchargements (ajouté après coup) : idempotent, défaut 0.
+  ensureColumn(db, "files", "download_count", "INTEGER NOT NULL DEFAULT 0");
 
   return db;
 }
