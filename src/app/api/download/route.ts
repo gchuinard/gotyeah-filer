@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { getSession } from "@/lib/auth";
+import { canAccessFile } from "@/lib/access";
 import { getFile, type FileRow } from "@/lib/files";
 import { zipFilesResponse } from "@/lib/zip";
 
@@ -7,14 +8,19 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Télécharge une SÉLECTION de fichiers (par ids) sous forme d'archive .zip
- * (admin uniquement). Conçu pour un POST de formulaire (le navigateur stream la
- * réponse vers le disque) : pas de limite de longueur d'URL, pas de mise en
- * mémoire côté client. Accepte aussi un corps JSON { ids: string[] }.
+ * Télécharge une SÉLECTION de fichiers (par ids) sous forme d'archive .zip.
+ * Accessible à l'admin ET à un invité, mais chaque fichier est filtré par
+ * `canAccessFile` : un invité ne peut zipper que les fichiers couverts par son
+ * partage (son fichier, ou ceux de son dossier partagé). Les ids non autorisés
+ * sont silencieusement ignorés.
+ *
+ * Conçu pour un POST de formulaire (le navigateur stream la réponse vers le
+ * disque) : pas de limite de longueur d'URL, pas de mise en mémoire côté
+ * client. Accepte aussi un corps JSON { ids: string[] }.
  */
 export async function POST(request: NextRequest) {
   const session = await getSession();
-  if (session?.role !== "admin") {
+  if (!session) {
     return new Response("Accès refusé", { status: 403 });
   }
 
@@ -36,13 +42,14 @@ export async function POST(request: NextRequest) {
     ids = typeof raw === "string" ? raw.split(",") : [];
   }
 
-  // Normalise + déduplique (en gardant l'ordre).
+  // Normalise + déduplique (en gardant l'ordre) + contrôle d'accès par fichier.
   const seen = new Set<string>();
   const files: FileRow[] = [];
   for (const rawId of ids) {
     const id = rawId.trim();
     if (!id || seen.has(id)) continue;
     seen.add(id);
+    if (!canAccessFile(session, id)) continue;
     const file = getFile(id);
     if (file) files.push(file);
   }
