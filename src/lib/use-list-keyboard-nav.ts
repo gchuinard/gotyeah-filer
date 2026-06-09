@@ -22,16 +22,19 @@ export function navKeyBlocked(): boolean {
 
 /**
  * Navigation clavier ↑/↓ dans une liste de fichiers : sélectionne le précédent /
- * suivant et empêche le défilement de la page.
+ * suivant et empêche le défilement de la page. Entrée / Espace déclenche
+ * `onActivate` (ex. ouvrir l'aperçu plein écran).
  */
 export function useListKeyboardNav(
   items: { id: string }[],
   currentId: string | null,
   onSelect: (id: string) => void,
+  onActivate?: (id: string) => void,
 ) {
   const itemsRef = useRef(items);
   const currentRef = useRef(currentId);
   const onSelectRef = useRef(onSelect);
+  const onActivateRef = useRef(onActivate);
 
   // Garde les refs à jour (hors rendu) pour que le handler lise les valeurs
   // courantes sans se ré-enregistrer.
@@ -39,12 +42,24 @@ export function useListKeyboardNav(
     itemsRef.current = items;
     currentRef.current = currentId;
     onSelectRef.current = onSelect;
+    onActivateRef.current = onActivate;
   });
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
       if (e.altKey || e.ctrlKey || e.metaKey) return;
+
+      // Entrée / Espace : activer (ouvrir l'aperçu en grand).
+      if (e.key === "Enter" || e.key === " ") {
+        if (navKeyBlocked() || !onActivateRef.current) return;
+        const cur = currentRef.current;
+        if (!cur) return;
+        e.preventDefault();
+        onActivateRef.current(cur);
+        return;
+      }
+
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
       if (navKeyBlocked()) return;
 
       const list = itemsRef.current;

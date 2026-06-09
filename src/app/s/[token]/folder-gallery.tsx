@@ -15,6 +15,7 @@ import { useListKeyboardNav } from "@/lib/use-list-keyboard-nav";
 import { sortFiles, type SortField, type SortDir } from "@/lib/sort";
 import { FilterChips } from "@/components/filter-chips";
 import { SortControl } from "@/components/sort-control";
+import { Lightbox } from "@/components/lightbox";
 
 export type GalleryFile = {
   id: string;
@@ -61,6 +62,7 @@ export function FolderGallery({
   folderId: string;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState(false);
   const [filter, setFilter] = useState<MediaFilter>("all");
   const [query, setQuery] = useState("");
   const [sortField, setSortField] = useState<SortField>("date");
@@ -82,8 +84,20 @@ export function FolderGallery({
   const selected =
     visible.find((f) => f.id === selectedId) ?? visible[0] ?? null;
 
-  // Flèches ↑/↓ : passe au fichier précédent / suivant (au lieu de scroller).
-  useListKeyboardNav(visible, selected?.id ?? null, setSelectedId);
+  // Flèches ↑/↓ : fichier précédent / suivant ; Entrée/Espace : aperçu en grand.
+  useListKeyboardNav(visible, selected?.id ?? null, setSelectedId, () =>
+    setLightbox(true),
+  );
+  function lightboxStep(dir: 1 | -1) {
+    if (!selected) return;
+    const i = visible.findIndex((f) => f.id === selected.id);
+    const ni =
+      dir > 0 ? Math.min(i + 1, visible.length - 1) : Math.max(i - 1, 0);
+    setSelectedId(visible[ni].id);
+  }
+  const lbIndex = selected
+    ? visible.findIndex((f) => f.id === selected.id)
+    : -1;
 
   function selectFilter(next: MediaFilter) {
     setFilter(next);
@@ -280,7 +294,8 @@ export function FolderGallery({
                     <img
                       src={`/api/files/${selected.id}?inline=1`}
                       alt={selected.original_name}
-                      className="max-h-[78vh] w-auto max-w-full rounded object-contain"
+                      onClick={() => setLightbox(true)}
+                      className="max-h-[78vh] w-auto max-w-full cursor-zoom-in rounded object-contain"
                     />
                   ) : isVideo(selected.mime, selected.original_name) ? (
                     <video
@@ -316,6 +331,17 @@ export function FolderGallery({
             )}
           </section>
         </div>
+      )}
+
+      {lightbox && selected && (
+        <Lightbox
+          file={selected}
+          hasPrev={lbIndex > 0}
+          hasNext={lbIndex >= 0 && lbIndex < visible.length - 1}
+          onPrev={() => lightboxStep(-1)}
+          onNext={() => lightboxStep(1)}
+          onClose={() => setLightbox(false)}
+        />
       )}
     </main>
   );

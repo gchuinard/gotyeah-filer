@@ -17,6 +17,7 @@ import { sortFiles, type SortField, type SortDir } from "@/lib/sort";
 import { FilterChips } from "@/components/filter-chips";
 import { SortControl } from "@/components/sort-control";
 import { useConfirm } from "@/components/confirm-dialog";
+import { Lightbox } from "@/components/lightbox";
 import { DeleteButton } from "@/app/admin/delete-button";
 import { MoveSelect } from "@/app/admin/move-select";
 import { type Share } from "@/app/admin/share-manager";
@@ -82,6 +83,7 @@ export function FileBrowser({
     name: string;
   } | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [lightbox, setLightbox] = useState(false);
   const [filter, setFilter] = useState<MediaFilter>("all");
   const [query, setQuery] = useState("");
   const [sortField, setSortField] = useState<SortField>("date");
@@ -108,8 +110,22 @@ export function FileBrowser({
   const selected =
     visible.find((f) => f.id === selectedId) ?? visible[0] ?? null;
 
-  // Flèches ↑/↓ : passe au fichier précédent / suivant (au lieu de scroller).
-  useListKeyboardNav(visible, selected?.id ?? null, setSelectedId);
+  // Flèches ↑/↓ : fichier précédent / suivant ; Entrée/Espace : aperçu en grand.
+  useListKeyboardNav(visible, selected?.id ?? null, setSelectedId, () =>
+    setLightbox(true),
+  );
+
+  // Navigation au sein du plein écran.
+  function lightboxStep(dir: 1 | -1) {
+    if (!selected) return;
+    const i = visible.findIndex((f) => f.id === selected.id);
+    const ni =
+      dir > 0 ? Math.min(i + 1, visible.length - 1) : Math.max(i - 1, 0);
+    setSelectedId(visible[ni].id);
+  }
+  const lbIndex = selected
+    ? visible.findIndex((f) => f.id === selected.id)
+    : -1;
 
   // Changer la vue (filtre/recherche) réinitialise la sélection (évite des
   // coches « cachées » qui seraient incluses dans une action groupée).
@@ -402,7 +418,8 @@ export function FileBrowser({
                 <img
                   src={`/api/files/${selected.id}?inline=1`}
                   alt={selected.original_name}
-                  className="max-h-[78vh] w-auto max-w-full rounded object-contain"
+                  onClick={() => setLightbox(true)}
+                  className="max-h-[78vh] w-auto max-w-full cursor-zoom-in rounded object-contain"
                 />
               ) : isVideo(selected.mime, selected.original_name) ? (
                 <video
@@ -447,6 +464,17 @@ export function FileBrowser({
           appUrl={appUrl}
           initialShares={shares[shareTarget.id] ?? []}
           onClose={() => setShareTarget(null)}
+        />
+      )}
+
+      {lightbox && selected && (
+        <Lightbox
+          file={selected}
+          hasPrev={lbIndex > 0}
+          hasNext={lbIndex >= 0 && lbIndex < visible.length - 1}
+          onPrev={() => lightboxStep(-1)}
+          onNext={() => lightboxStep(1)}
+          onClose={() => setLightbox(false)}
         />
       )}
     </div>
