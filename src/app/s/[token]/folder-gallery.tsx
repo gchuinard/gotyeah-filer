@@ -59,9 +59,14 @@ export function FolderGallery({
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<MediaFilter>("all");
+  const [query, setQuery] = useState("");
 
-  const counts = categoryCounts(files);
-  const visible = files.filter((f) => matchesFilter(f, filter));
+  const q = query.trim().toLowerCase();
+  const searched = q
+    ? files.filter((f) => f.original_name.toLowerCase().includes(q))
+    : files;
+  const counts = categoryCounts(searched);
+  const visible = searched.filter((f) => matchesFilter(f, filter));
 
   const { checked, allChecked, toggleAll, clear, checkboxProps } =
     useMultiSelect(visible);
@@ -70,6 +75,11 @@ export function FolderGallery({
 
   function selectFilter(next: MediaFilter) {
     setFilter(next);
+    clear();
+    setSelectedId(null);
+  }
+  function search(next: string) {
+    setQuery(next);
     clear();
     setSelectedId(null);
   }
@@ -120,6 +130,13 @@ export function FolderGallery({
         <div className="mt-6 flex flex-col gap-4 md:flex-row md:gap-6">
           {/* Aside : liste défilante + sélection multiple + download par ligne */}
           <aside className="md:sticky md:top-4 md:w-80 md:shrink-0 md:self-start">
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => search(e.target.value)}
+              placeholder="Rechercher un fichier…"
+              className="mb-3 w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-500"
+            />
             <FilterChips
               counts={counts}
               active={filter}
@@ -128,7 +145,7 @@ export function FolderGallery({
 
             {visible.length === 0 ? (
               <p className="rounded-xl border border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
-                Aucun fichier de ce type.
+                Aucun fichier ne correspond.
               </p>
             ) : (
               <>

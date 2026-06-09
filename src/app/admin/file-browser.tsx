@@ -74,22 +74,34 @@ export function FileBrowser({
   const [shareOpenId, setShareOpenId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [filter, setFilter] = useState<MediaFilter>("all");
+  const [query, setQuery] = useState("");
 
-  // Comptes par type (sur la vue dossier courante) + liste filtrée.
-  const counts = categoryCounts(files);
-  const visible = files.filter((f) => matchesFilter(f, filter));
+  // Recherche par nom, puis filtre par type. Les comptes des chips reflètent la
+  // recherche courante.
+  const q = query.trim().toLowerCase();
+  const searched = q
+    ? files.filter((f) => f.original_name.toLowerCase().includes(q))
+    : files;
+  const counts = categoryCounts(searched);
+  const visible = searched.filter((f) => matchesFilter(f, filter));
 
   const { checked, allChecked, toggleAll, clear, checkboxProps } =
     useMultiSelect(visible);
 
   // Sélection robuste : retombe sur le 1er fichier visible si l'id n'existe
-  // plus (ex. après suppression/refresh) ou n'est plus dans le filtre.
+  // plus (ex. après suppression/refresh) ou n'est plus dans la vue.
   const selected =
     visible.find((f) => f.id === selectedId) ?? visible[0] ?? null;
 
-  // Changer de filtre réinitialise la sélection (évite des coches « cachées »).
+  // Changer la vue (filtre/recherche) réinitialise la sélection (évite des
+  // coches « cachées » qui seraient incluses dans une action groupée).
   function selectFilter(next: MediaFilter) {
     setFilter(next);
+    clear();
+    setSelectedId(null);
+  }
+  function search(next: string) {
+    setQuery(next);
     clear();
     setSelectedId(null);
   }
@@ -168,11 +180,18 @@ export function FileBrowser({
     <div className="flex flex-col gap-4 md:flex-row md:gap-6">
       {/* Aside : liste défilante + sélection multiple + actions par ligne */}
       <aside className="md:sticky md:top-4 md:w-80 md:shrink-0 md:self-start">
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => search(e.target.value)}
+          placeholder="Rechercher un fichier…"
+          className="mb-3 w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-500"
+        />
         <FilterChips counts={counts} active={filter} onSelect={selectFilter} />
 
         {visible.length === 0 ? (
           <p className="rounded-xl border border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
-            Aucun fichier de ce type.
+            Aucun fichier ne correspond.
           </p>
         ) : (
           <>
