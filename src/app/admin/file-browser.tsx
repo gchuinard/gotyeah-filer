@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { extLabel, formatBytes, formatDate } from "@/lib/format";
+import { isAudio } from "@/lib/media";
+import { useMultiSelect } from "@/lib/use-multi-select";
 import { DeleteButton } from "@/app/admin/delete-button";
 import { MoveSelect } from "@/app/admin/move-select";
 import { ShareManager, type Share } from "@/app/admin/share-manager";
@@ -62,25 +64,13 @@ export function FileBrowser({
   const router = useRouter();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [shareOpenId, setShareOpenId] = useState<string | null>(null);
-  const [checked, setChecked] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const { checked, allChecked, toggleAll, clear, checkboxProps } =
+    useMultiSelect(files);
 
   // Sélection robuste : retombe sur le 1er fichier si l'id n'existe plus
   // (ex. après suppression + refresh).
   const selected = files.find((f) => f.id === selectedId) ?? files[0] ?? null;
-
-  function toggle(id: string) {
-    setChecked((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-  const allChecked = files.length > 0 && checked.size === files.length;
-  function toggleAll() {
-    setChecked(allChecked ? new Set() : new Set(files.map((f) => f.id)));
-  }
 
   async function bulkMove(folderId: string | null) {
     if (checked.size === 0) return;
@@ -95,7 +85,7 @@ export function FileBrowser({
           }),
         ),
       );
-      setChecked(new Set());
+      clear();
       router.refresh();
     } finally {
       setBulkBusy(false);
@@ -135,7 +125,7 @@ export function FileBrowser({
       await Promise.all(
         [...checked].map((id) => fetch(`/api/files/${id}`, { method: "DELETE" })),
       );
-      setChecked(new Set());
+      clear();
       router.refresh();
     } finally {
       setBulkBusy(false);
@@ -169,7 +159,7 @@ export function FileBrowser({
           {checked.size > 0 && (
             <button
               type="button"
-              onClick={() => setChecked(new Set())}
+              onClick={() => clear()}
               className="text-xs text-zinc-500 transition-colors hover:text-zinc-300"
             >
               Désélectionner
@@ -223,7 +213,7 @@ export function FileBrowser({
         )}
 
         <ul className="flex max-h-[60vh] flex-col divide-y divide-zinc-800 overflow-y-auto overflow-x-hidden rounded-xl border border-zinc-800 md:max-h-[calc(100vh-2rem)]">
-          {files.map((f) => {
+          {files.map((f, index) => {
             const active = selected?.id === f.id;
             return (
               <li
@@ -234,8 +224,7 @@ export function FileBrowser({
                   <input
                     type="checkbox"
                     aria-label={`Sélectionner ${f.original_name}`}
-                    checked={checked.has(f.id)}
-                    onChange={() => toggle(f.id)}
+                    {...checkboxProps(index, f.id)}
                     className="mt-1 size-3.5 shrink-0 accent-zinc-300"
                   />
                   <div className="flex min-w-0 flex-1 flex-col gap-1.5">
@@ -301,6 +290,16 @@ export function FileBrowser({
                   alt={selected.original_name}
                   className="max-h-[78vh] w-auto max-w-full rounded object-contain"
                 />
+              ) : isAudio(selected.mime, selected.original_name) ? (
+                <div className="flex w-full max-w-xl flex-col items-center gap-5 px-4 py-10">
+                  <Thumb file={selected} big />
+                  {/* Lecture inline : seek via Range, ne compte pas comme download. */}
+                  <audio
+                    controls
+                    src={`/api/files/${selected.id}?inline=1`}
+                    className="w-full"
+                  />
+                </div>
               ) : (
                 <div className="flex flex-col items-center gap-3 py-12 text-center">
                   <Thumb file={selected} big />

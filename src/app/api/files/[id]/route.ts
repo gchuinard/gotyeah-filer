@@ -12,17 +12,22 @@ import {
   storedFilePath,
 } from "@/lib/files";
 import { getFolder } from "@/lib/folders";
+import { mediaContentType } from "@/lib/media";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+function toWeb(stream: import("node:fs").ReadStream): ReadableStream<Uint8Array> {
+  return Readable.toWeb(stream) as unknown as ReadableStream<Uint8Array>;
+}
 
 /**
  * Sert un fichier en streaming, après contrôle d'accès (admin OU invité
  * autorisé pour le partage de ce fichier précis — cf. `canAccessFile`).
  *
  * Deux modes :
- * - `?inline=1` : aperçu (Content-Disposition: inline, cacheable côté client),
- *   utilisé pour les vignettes/prévisualisations → NE compte PAS comme un
+ * - `?inline=1` : aperçu / lecture média (Content-Disposition: inline, cacheable,
+ *   requêtes Range honorées pour le seek audio) → NE compte PAS comme un
  *   téléchargement.
  * - défaut : pièce jointe (attachment, no-store) → incrémente le compteur.
  */
@@ -51,32 +56,56 @@ export async function GET(
 
   const inline = request.nextUrl.searchParams.has("inline");
 
-  const body = Readable.toWeb(
-    createReadStream(path),
-  ) as unknown as ReadableStream<Uint8Array>;
-
   // filename* (UTF-8) pour les accents/emoji ; filename ASCII en repli.
   const fallback = file.original_name
     .replace(/[^\x20-\x7e]/g, "_")
     .replace(/"/g, "'");
 
-  // Seul un vrai téléchargement (pas un aperçu inline) incrémente le compteur.
+  const baseHeaders: Record<string, string> = {
+    "Content-Type": mediaContentType(file.mime, file.original_name),
+    "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(
+      file.original_name,
+    )}`,
+    // Le MIME peut être déduit de l'extension : on empêche tout sniffing.
+    "X-Content-Type-Options": "nosniff",
+    // Aperçu : cacheable brièvement. Download : jamais stocké.
+    "Cache-Control": inline ? "private, max-age=300" : "private, no-store",
+    "Accept-Ranges": "bytes",
+  };
+
+  // Lecture média (inline) : on honore les requêtes Range pour permettre le
+  // seek dans un audio. Le download (attachment) reste un flux complet, compté.
+  const range = inline ? request.headers.get("range") : null;
+  if (range) {
+    const m = /^bytes=(\d*)-(\d*)$/.exec(range.trim());
+    if (m && (m[1] || m[2])) {
+      const start = m[1] ? parseInt(m[1], 10) : 0;
+      let end = m[2] ? parseInt(m[2], 10) : size - 1;
+      if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= size) {
+        return new Response("Range non satisfiable", {
+          status: 416,
+          headers: { "Content-Range": `bytes */${size}` },
+        });
+      }
+      end = Math.min(end, size - 1);
+      return new Response(toWeb(createReadStream(path, { start, end })), {
+        status: 206,
+        headers: {
+          ...baseHeaders,
+          "Content-Range": `bytes ${start}-${end}/${size}`,
+          "Content-Length": String(end - start + 1),
+        },
+      });
+    }
+  }
+
+  // Seul un vrai téléchargement (pas un aperçu/lecture inline) incrémente le compteur.
   if (!inline) {
     incrementDownloadCount(id);
   }
 
-  return new Response(body, {
-    headers: {
-      "Content-Type": file.mime || "application/octet-stream",
-      "Content-Length": String(size),
-      "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(
-        file.original_name,
-      )}`,
-      // Le MIME est fourni par le client à l'upload : on empêche le sniffing.
-      "X-Content-Type-Options": "nosniff",
-      // Aperçu : cacheable brièvement côté client. Download : jamais stocké.
-      "Cache-Control": inline ? "private, max-age=300" : "private, no-store",
-    },
+  return new Response(toWeb(createReadStream(path)), {
+    headers: { ...baseHeaders, "Content-Length": String(size) },
   });
 }
 
