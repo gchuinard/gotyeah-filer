@@ -102,6 +102,25 @@ export function FileBrowser({
     }
   }
 
+  /**
+   * Télécharge la sélection en .zip via un POST de formulaire : le navigateur
+   * stream la réponse vers le disque (pas de limite d'URL, pas de buffer JS).
+   */
+  function bulkDownloadZip() {
+    if (checked.size === 0) return;
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = "/api/download";
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = "ids";
+    input.value = [...checked].join(",");
+    form.appendChild(input);
+    document.body.appendChild(form);
+    form.submit();
+    form.remove();
+  }
+
   async function bulkDelete() {
     if (checked.size === 0) return;
     if (
@@ -185,6 +204,13 @@ export function FileBrowser({
                 </option>
               ))}
             </select>
+            <button
+              type="button"
+              onClick={bulkDownloadZip}
+              className="rounded-md border border-zinc-700 px-2 py-1 text-zinc-300 transition-colors hover:bg-zinc-800"
+            >
+              Télécharger (.zip)
+            </button>
             <button
               type="button"
               disabled={bulkBusy}
