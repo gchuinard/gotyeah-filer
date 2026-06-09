@@ -67,6 +67,31 @@ export function fileCategory(mime: string | null, name: string): FileCategory {
   return "other";
 }
 
+/** Filtre de la barre de types (toutes catégories + « tous »). */
+export type MediaFilter = "all" | FileCategory;
+
+type Categorizable = { mime: string | null; original_name: string };
+
+/** Compte les fichiers par catégorie (+ total sous la clé `all`). */
+export function categoryCounts(
+  files: Categorizable[],
+): Record<MediaFilter, number> {
+  const c: Record<MediaFilter, number> = {
+    all: files.length,
+    image: 0,
+    audio: 0,
+    video: 0,
+    other: 0,
+  };
+  for (const f of files) c[fileCategory(f.mime, f.original_name)] += 1;
+  return c;
+}
+
+/** Vrai si le fichier correspond au filtre courant. */
+export function matchesFilter(f: Categorizable, filter: MediaFilter): boolean {
+  return filter === "all" || fileCategory(f.mime, f.original_name) === filter;
+}
+
 /**
  * Content-Type à servir : le MIME stocké s'il est exploitable, sinon déduit de
  * l'extension pour les médias connus. Utile quand l'upload n'a pas fourni de

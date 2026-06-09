@@ -2,8 +2,16 @@
 
 import { useState } from "react";
 import { extLabel, formatBytes, formatDate } from "@/lib/format";
-import { isAudio, isPdf, isVideo } from "@/lib/media";
+import {
+  categoryCounts,
+  isAudio,
+  isPdf,
+  isVideo,
+  matchesFilter,
+  type MediaFilter,
+} from "@/lib/media";
 import { useMultiSelect } from "@/lib/use-multi-select";
+import { FilterChips } from "@/components/filter-chips";
 
 export type GalleryFile = {
   id: string;
@@ -50,9 +58,21 @@ export function FolderGallery({
   folderId: string;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<MediaFilter>("all");
+
+  const counts = categoryCounts(files);
+  const visible = files.filter((f) => matchesFilter(f, filter));
+
   const { checked, allChecked, toggleAll, clear, checkboxProps } =
-    useMultiSelect(files);
-  const selected = files.find((f) => f.id === selectedId) ?? files[0] ?? null;
+    useMultiSelect(visible);
+  const selected =
+    visible.find((f) => f.id === selectedId) ?? visible[0] ?? null;
+
+  function selectFilter(next: MediaFilter) {
+    setFilter(next);
+    clear();
+    setSelectedId(null);
+  }
 
   /** Télécharge la sélection en .zip via un POST de formulaire (streaming). */
   function downloadSelection() {
@@ -100,6 +120,18 @@ export function FolderGallery({
         <div className="mt-6 flex flex-col gap-4 md:flex-row md:gap-6">
           {/* Aside : liste défilante + sélection multiple + download par ligne */}
           <aside className="md:sticky md:top-4 md:w-80 md:shrink-0 md:self-start">
+            <FilterChips
+              counts={counts}
+              active={filter}
+              onSelect={selectFilter}
+            />
+
+            {visible.length === 0 ? (
+              <p className="rounded-xl border border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
+                Aucun fichier de ce type.
+              </p>
+            ) : (
+              <>
             <div className="mb-2 flex items-center justify-between gap-2">
               <label className="flex items-center gap-2 text-xs font-medium text-zinc-500">
                 <input
@@ -108,7 +140,7 @@ export function FolderGallery({
                   onChange={toggleAll}
                   className="size-3.5 accent-zinc-300"
                 />
-                Fichiers ({files.length})
+                Fichiers ({visible.length})
               </label>
               {checked.size > 0 && (
                 <button
@@ -137,7 +169,7 @@ export function FolderGallery({
             )}
 
             <ul className="flex max-h-[60vh] flex-col divide-y divide-zinc-800 overflow-y-auto overflow-x-hidden rounded-xl border border-zinc-800 md:max-h-[calc(100vh-2rem)]">
-              {files.map((f, index) => {
+              {visible.map((f, index) => {
                 const active = selected?.id === f.id;
                 return (
                   <li
@@ -181,6 +213,8 @@ export function FolderGallery({
                 );
               })}
             </ul>
+              </>
+            )}
           </aside>
 
           {/* Centre : aperçu en grand */}

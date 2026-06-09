@@ -4,13 +4,15 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { extLabel, formatBytes, formatDate } from "@/lib/format";
 import {
-  fileCategory,
+  categoryCounts,
   isAudio,
   isPdf,
   isVideo,
-  type FileCategory,
+  matchesFilter,
+  type MediaFilter,
 } from "@/lib/media";
 import { useMultiSelect } from "@/lib/use-multi-select";
+import { FilterChips } from "@/components/filter-chips";
 import { DeleteButton } from "@/app/admin/delete-button";
 import { MoveSelect } from "@/app/admin/move-select";
 import { ShareManager, type Share } from "@/app/admin/share-manager";
@@ -26,15 +28,6 @@ export type FileItem = {
 };
 
 type Option = { id: string; name: string };
-
-type Filter = "all" | FileCategory;
-const FILTER_CHIPS: { key: Filter; label: string }[] = [
-  { key: "all", label: "Tous" },
-  { key: "image", label: "Images" },
-  { key: "audio", label: "Audio" },
-  { key: "video", label: "Vidéo" },
-  { key: "other", label: "Fichiers" },
-];
 
 /** Vignette : image servie inline (ne compte pas), sinon pastille d'extension. */
 function Thumb({ file, big = false }: { file: FileItem; big?: boolean }) {
@@ -80,23 +73,11 @@ export function FileBrowser({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [shareOpenId, setShareOpenId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
-  const [filter, setFilter] = useState<Filter>("all");
+  const [filter, setFilter] = useState<MediaFilter>("all");
 
-  // Comptes par type (sur la vue dossier courante) pour les chips.
-  const counts: Record<Filter, number> = {
-    all: files.length,
-    image: 0,
-    audio: 0,
-    video: 0,
-    other: 0,
-  };
-  for (const f of files) counts[fileCategory(f.mime, f.original_name)] += 1;
-
-  // Liste filtrée par type.
-  const visible =
-    filter === "all"
-      ? files
-      : files.filter((f) => fileCategory(f.mime, f.original_name) === filter);
+  // Comptes par type (sur la vue dossier courante) + liste filtrée.
+  const counts = categoryCounts(files);
+  const visible = files.filter((f) => matchesFilter(f, filter));
 
   const { checked, allChecked, toggleAll, clear, checkboxProps } =
     useMultiSelect(visible);
@@ -107,7 +88,7 @@ export function FileBrowser({
     visible.find((f) => f.id === selectedId) ?? visible[0] ?? null;
 
   // Changer de filtre réinitialise la sélection (évite des coches « cachées »).
-  function selectFilter(next: Filter) {
+  function selectFilter(next: MediaFilter) {
     setFilter(next);
     clear();
     setSelectedId(null);
@@ -187,24 +168,7 @@ export function FileBrowser({
     <div className="flex flex-col gap-4 md:flex-row md:gap-6">
       {/* Aside : liste défilante + sélection multiple + actions par ligne */}
       <aside className="md:sticky md:top-4 md:w-80 md:shrink-0 md:self-start">
-        <div className="mb-3 flex flex-wrap gap-1.5">
-          {FILTER_CHIPS.filter(
-            (c) => c.key === "all" || counts[c.key] > 0,
-          ).map((c) => (
-            <button
-              key={c.key}
-              type="button"
-              onClick={() => selectFilter(c.key)}
-              className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
-                filter === c.key
-                  ? "border-zinc-100 bg-zinc-100 text-zinc-900"
-                  : "border-zinc-800 text-zinc-300 hover:bg-zinc-900"
-              }`}
-            >
-              {c.label} ({counts[c.key]})
-            </button>
-          ))}
-        </div>
+        <FilterChips counts={counts} active={filter} onSelect={selectFilter} />
 
         {visible.length === 0 ? (
           <p className="rounded-xl border border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
