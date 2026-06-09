@@ -9,16 +9,23 @@ range dans des dossiers, puis on les partage à des proches via un lien `/s/{tok
 
 ## Fonctionnalités
 
-- **Admin** (emails listés dans `ADMIN_EMAILS`) : liste des fichiers (avec **aperçu des
-  images** et **compteur de téléchargements**), upload (drag & drop, **streaming**, gros
+- **Admin** (emails listés dans `ADMIN_EMAILS`) : upload (drag & drop, **streaming**, gros
   fichiers OK), **dossiers** pour ranger, création de **partages** d'un fichier **ou d'un
-  dossier entier** (1+ emails autorisés → lien + « copier »), révocation, suppression, download.
+  dossier entier** (emails autorisés → lien + « copier »), révocation, suppression, download,
+  **compteur de téléchargements** par fichier.
+- **Explorateur** (admin & page invité) : vue **master‑détail** (liste à gauche, aperçu en
+  grand au centre) avec **aperçu** des images, **lecture** audio/vidéo (seek via requêtes
+  Range) et **PDF** en ligne, **plein écran** (Entrée/Espace ou clic), **filtre par type**
+  (images / audio / vidéo / fichiers), **recherche** par nom, **tri** (nom / date / taille),
+  **multi‑sélection** (clic, shift‑clic) → actions groupées (déplacer / supprimer / télécharger
+  en **.zip**), et **navigation au clavier** (↑/↓ fichiers, ←/→ dossiers, Entrée/Espace plein écran).
 - **Invité** : via un lien `/s/{token}`, saisit son email ; s'il est autorisé pour ce
   partage (ou s'il est admin), il accède au contenu partagé. Pour un **partage de fichier**,
-  il voit le fichier (aperçu si image) + download. Pour un **partage de dossier**, il voit la
-  **liste des fichiers** du dossier (chacun téléchargeable) + un bouton **« Tout télécharger
-  (.zip) »**. Sinon, accès refusé. Un partage de dossier est « vivant » : il suit le contenu
-  actuel du dossier.
+  il voit/lit le fichier + download. Pour un **partage de dossier**, il a l'explorateur ci‑dessus
+  + un bouton **« Tout télécharger (.zip) »** (et le zip d'une sélection). Sinon, accès refusé.
+  Un partage de dossier est « vivant » : il suit le contenu actuel du dossier.
+- **Sécurité d'affichage** : seuls les types inertes (image hors SVG, audio, vidéo, PDF) sont
+  servis *en ligne* ; tout le reste (html, svg…) est forcé en téléchargement.
 - **Pas de comptes, pas de mot de passe, aucun email envoyé.** L'accès est une simple
   « porte » (email comparé à une liste) — compromis assumé, cf. `CONTEXT.md`.
 

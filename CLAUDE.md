@@ -22,7 +22,10 @@ Guide à destination d'un assistant IA (Claude Code) travaillant dans ce repo.
 - **Stockage** : écrire dans `/data/files` sous un nom de stockage unique (`crypto.randomUUID`) ; conserver le nom d'origine en base. Le `.db` SQLite vit sous `/data`.
 - **Emails** : normaliser systématiquement (minuscules + trim) des **DEUX** côtés (liste `.env` / partage ET saisie utilisateur) avant comparaison.
 - **Sessions** : cookie signé, `httpOnly`, secret `SESSION_SECRET`, stateless (aucun stockage DB), durée ~30 jours, contenant email + rôle (+ token de partage si invité).
-- **Download** : Route Handler dédiée, streaming, `Content-Disposition: attachment`, **APRÈS** contrôle de session (admin, ou invité autorisé pour ce partage précis).
+- **Download** : Route Handler dédiée, streaming, `Content-Disposition: attachment`, **APRÈS** contrôle de session (admin, ou invité autorisé pour ce partage précis). Un vrai download incrémente `download_count`.
+- **Aperçu / lecture inline** (`GET /api/files/[id]?inline=1`) : sert le fichier `inline` pour l'aperçu/lecture (vignette, image, audio, vidéo, PDF) — **ne compte PAS** comme un download. Honore les requêtes **Range** (seek). **Sécurité** : `inline` n'est servi que pour les types **inertes** sûrs (image hors SVG, audio, vidéo, PDF — cf. `isInlineSafe`) ; tout le reste (html, svg…) est **forcé en `attachment`** même avec `?inline=1`. Le `Content-Type` est déduit de l'extension si le MIME stocké est absent/générique (`mediaContentType`). Toujours `X-Content-Type-Options: nosniff`.
+- **Zip** : archives de dossier / de sélection en streaming via `yazl` (helper `src/lib/zip.ts`, pré-`stat` des blobs + handler d'erreur).
+- **UI** : confirmations destructives via la modale `useConfirm()` (`src/components/confirm-dialog.tsx`) — **jamais** `window.confirm`. Composants transverses mutualisés dans `src/components/` (filtres, tri, lightbox, modales).
 
 ## Schéma SQLite (créé au démarrage si absent)
 - `files(id TEXT PK, stored_name TEXT, original_name TEXT, size INTEGER, mime TEXT, created_at INTEGER, folder_id TEXT /* NULL = racine */, download_count INTEGER DEFAULT 0)`

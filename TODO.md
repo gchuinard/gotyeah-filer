@@ -52,3 +52,17 @@
 - [x] README complet : env, docker-compose, Nginx Proxy Manager, Cloudflare (100 Mo),
       prérequis Pi, secrets CI/CD, sauvegarde, sécurité.
 - → **GATE finale** : validation
+
+## Ajouts post-lancement (hors phases, livrés à la demande) ✅
+- [x] Aperçu des images + **compteur de téléchargements** (`download_count`).
+- [x] **Partage de dossier** (partage polymorphe fichier/dossier, CHECK XOR + migration
+      idempotente `ensurePolymorphicShares`) + **téléchargement zip** (dossier ET sélection, `yazl`).
+- [x] UI **master-détail** : aside (liste défilante) + aperçu au centre, admin & page invité.
+- [x] **Aperçu/lecture inline** : audio (mp3/wav…), vidéo (mp4/webm…), **PDF** ; Content-Type
+      déduit de l'extension + requêtes **Range** (seek) ; `inline` réservé aux types sûrs.
+- [x] **Plein écran** (lightbox) : Entrée/Espace ou clic, navigation flèches dedans.
+- [x] **Multi-sélection** (clic, shift-clic) + actions groupées (déplacer / supprimer / zip).
+- [x] **Filtre par type**, **recherche** par nom, **tri** (nom / date / taille).
+- [x] **Navigation clavier** : ↑/↓ fichiers, ←/→ dossiers, Entrée/Espace plein écran.
+- [x] **Modale de confirmation** stylée (remplace `window.confirm`) ; **modale de partage**
+      (e-mails en chips : ajouter/supprimer, pas d'édition).

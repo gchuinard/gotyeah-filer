@@ -14,7 +14,7 @@
 La « connexion » est une **simple porte**, PAS une vraie authentification, et c'est **assumé / volontaire**. On saisit une adresse mail, on la compare à une liste, et si elle y figure on pose un cookie de session. Aucune preuve de possession de l'email n'est demandée.
 
 - **Admins** : emails listés dans `ADMIN_EMAILS` (`.env`) → session admin, accès total.
-- **Invités** : accèdent via un lien `/s/{token}`, saisissent leur mail ; si le mail figure dans la liste autorisée **de ce partage** (ou si admin) → accès au seul fichier de ce partage (consultation + download). Sinon refus.
+- **Invités** : accèdent via un lien `/s/{token}`, saisissent leur mail ; si le mail figure dans la liste autorisée **de ce partage** (ou si admin) → accès au contenu de ce partage (consultation + download). Un partage cible **soit un fichier, soit un dossier entier** (dans ce cas l'invité voit tous les fichiers du dossier, avec un « Tout télécharger .zip » ; partage « vivant » qui suit le contenu actuel du dossier). Sinon refus.
 - **Sessions** : cookie signé, httpOnly (secret `SESSION_SECRET`), contenant email + rôle (+ token de partage pour un invité). Stateless, aucun stockage en base. Durée longue (~30 jours).
 
 **Compromis de sécurité** : faible et intentionnel. N'importe qui connaissant un mail autorisé peut se faire passer pour son propriétaire — il n'y a aucune vérification. C'est acceptable ici : usage strictement familial, périmètre réduit, et les liens de partage sont distribués à la main à des personnes de confiance. Le secret réel d'un partage, c'est son token (l'URL `/s/{token}`), pas le mail.
