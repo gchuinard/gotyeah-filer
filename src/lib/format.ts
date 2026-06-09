@@ -12,6 +12,13 @@ export function formatBytes(bytes: number): string {
   return `${rounded.toLocaleString("fr-FR")} ${units[i]}`;
 }
 
+/** Extension en majuscules pour la pastille d'un fichier non-image (ex. « PDF »). */
+export function extLabel(name: string): string {
+  const dot = name.lastIndexOf(".");
+  const ext = dot > 0 ? name.slice(dot + 1) : "";
+  return ext.slice(0, 4).toUpperCase() || "FIC";
+}
+
 /** Date lisible FR : « 8 juin 2026, 14:32 ». */
 export function formatDate(ms: number): string {
   return new Date(ms).toLocaleString("fr-FR", {

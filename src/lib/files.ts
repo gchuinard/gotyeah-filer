@@ -33,6 +33,15 @@ export function listFiles(): FileRow[] {
     .all() as FileRow[];
 }
 
+/** Les fichiers d'un dossier précis, du plus récent au plus ancien. */
+export function listFilesInFolder(folderId: string): FileRow[] {
+  return getDb()
+    .prepare(
+      "SELECT * FROM files WHERE folder_id = ? ORDER BY created_at DESC",
+    )
+    .all(folderId) as FileRow[];
+}
+
 /** Un fichier par son id, ou undefined. */
 export function getFile(id: string): FileRow | undefined {
   return getDb().prepare("SELECT * FROM files WHERE id = ?").get(id) as

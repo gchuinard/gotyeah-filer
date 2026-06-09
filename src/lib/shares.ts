@@ -4,7 +4,10 @@ import { normalizeEmail } from "@/lib/email";
 
 export type ShareRow = {
   token: string;
-  file_id: string;
+  /** Cible fichier (exclusif avec folder_id). */
+  file_id: string | null;
+  /** Cible dossier (exclusif avec file_id). */
+  folder_id: string | null;
   /** JSON array d'emails normalisés. */
   allowed_emails: string;
   created_at: number;
@@ -25,21 +28,37 @@ export function normalizeEmails(emails: string[]): string[] {
   return [...set];
 }
 
-/** Crée un partage pour un fichier avec une liste d'emails autorisés. */
-export function createShare(fileId: string, emails: string[]): ShareRow {
-  const row: ShareRow = {
-    token: generateToken(),
-    file_id: fileId,
-    allowed_emails: JSON.stringify(normalizeEmails(emails)),
-    created_at: Date.now(),
-  };
+/** Insère une ligne de partage (cible fichier OU dossier — cf. CHECK SQL). */
+function insertShare(row: ShareRow): ShareRow {
   getDb()
     .prepare(
-      `INSERT INTO shares (token, file_id, allowed_emails, created_at)
-       VALUES (@token, @file_id, @allowed_emails, @created_at)`,
+      `INSERT INTO shares (token, file_id, folder_id, allowed_emails, created_at)
+       VALUES (@token, @file_id, @folder_id, @allowed_emails, @created_at)`,
     )
     .run(row);
   return row;
+}
+
+/** Crée un partage pour un fichier avec une liste d'emails autorisés. */
+export function createShare(fileId: string, emails: string[]): ShareRow {
+  return insertShare({
+    token: generateToken(),
+    file_id: fileId,
+    folder_id: null,
+    allowed_emails: JSON.stringify(normalizeEmails(emails)),
+    created_at: Date.now(),
+  });
+}
+
+/** Crée un partage pour un dossier entier (tous ses fichiers, « vivant »). */
+export function createFolderShare(folderId: string, emails: string[]): ShareRow {
+  return insertShare({
+    token: generateToken(),
+    file_id: null,
+    folder_id: folderId,
+    allowed_emails: JSON.stringify(normalizeEmails(emails)),
+    created_at: Date.now(),
+  });
 }
 
 export function getShare(token: string): ShareRow | undefined {

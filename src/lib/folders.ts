@@ -43,10 +43,14 @@ export function renameFolder(id: string, name: string): boolean {
   );
 }
 
-/** Supprime un dossier ; ses fichiers repassent à la racine (folder_id = NULL). */
+/**
+ * Supprime un dossier ; ses fichiers repassent à la racine (folder_id = NULL)
+ * et ses partages de dossier sont révoqués. Transactionnel.
+ */
 export function deleteFolder(id: string): boolean {
   const db = getDb();
   const tx = db.transaction((folderId: string) => {
+    db.prepare("DELETE FROM shares WHERE folder_id = ?").run(folderId);
     db.prepare("UPDATE files SET folder_id = NULL WHERE folder_id = ?").run(folderId);
     return db.prepare("DELETE FROM folders WHERE id = ?").run(folderId).changes;
   });
