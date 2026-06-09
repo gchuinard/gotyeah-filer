@@ -10,6 +10,9 @@ export type Share = {
   created_at: number;
 };
 
+/** Validation de format légère (le vrai contrôle reste la « porte » à l'accès). */
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
 export function ShareManager({
   endpoint,
   appUrl,
@@ -28,7 +31,9 @@ export function ShareManager({
   const confirm = useConfirm();
   const [open, setOpen] = useState(false);
   const [shares, setShares] = useState<Share[]>(initialShares);
-  const [emails, setEmails] = useState("");
+  // Emails autorisés en cours de saisie (1 chip = 1 email, pas d'édition).
+  const [pending, setPending] = useState<string[]>([]);
+  const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
@@ -36,23 +41,37 @@ export function ShareManager({
   const base =
     appUrl || (typeof window !== "undefined" ? window.location.origin : "");
 
-  async function create(e: React.FormEvent) {
+  function addEmail(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
-    const list = emails
-      .split(/[,\s;]+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (list.length === 0) {
-      setError("Saisis au moins une adresse e-mail.");
+    const v = draft.trim().toLowerCase();
+    if (!v) return;
+    if (!EMAIL_RE.test(v)) {
+      setError("Adresse e-mail invalide.");
       return;
     }
+    if (pending.includes(v)) {
+      setError("Cette adresse est déjà ajoutée.");
+      setDraft("");
+      return;
+    }
+    setError(null);
+    setPending((p) => [...p, v]);
+    setDraft("");
+  }
+
+  function removeEmail(email: string) {
+    setPending((p) => p.filter((x) => x !== email));
+  }
+
+  async function create() {
+    if (pending.length === 0) return;
     setBusy(true);
+    setError(null);
     try {
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ emails: list }),
+        body: JSON.stringify({ emails: pending }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -63,7 +82,7 @@ export function ShareManager({
           { token: s.token, emails: s.emails, created_at: s.created_at },
           ...prev,
         ]);
-        setEmails("");
+        setPending([]);
         router.refresh();
       }
     } catch {
@@ -135,25 +154,58 @@ export function ShareManager({
         </ul>
       )}
 
-      <form onSubmit={create} className="flex flex-col gap-2">
-        <input
-          autoFocus={bare}
-          value={emails}
-          onChange={(e) => setEmails(e.target.value)}
-          placeholder="emails autorisés, séparés par des virgules"
-          className="w-full rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-500"
-        />
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-2">
+        {pending.length > 0 && (
+          <ul className="flex flex-col gap-1.5">
+            {pending.map((email) => (
+              <li
+                key={email}
+                className="flex items-center justify-between gap-2 rounded-md border border-zinc-800 bg-zinc-900/40 px-3 py-1.5 text-xs"
+              >
+                <span className="truncate text-zinc-200">{email}</span>
+                <button
+                  type="button"
+                  onClick={() => removeEmail(email)}
+                  aria-label={`Retirer ${email}`}
+                  className="shrink-0 text-zinc-500 transition-colors hover:text-red-400"
+                >
+                  Supprimer
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <form onSubmit={addEmail} className="flex gap-2">
+          <input
+            type="email"
+            autoFocus={bare}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="email@exemple.com"
+            className="min-w-0 flex-1 rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-500"
+          />
           <button
             type="submit"
-            disabled={busy}
-            className="rounded-md bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-900 transition-colors hover:bg-white disabled:opacity-60"
+            className="shrink-0 rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-zinc-200 transition-colors hover:bg-zinc-800"
           >
-            {busy ? "…" : "Créer un partage"}
+            Ajouter
           </button>
-          {error && <span className="text-xs text-red-400">{error}</span>}
-        </div>
-      </form>
+        </form>
+
+        {error && <span className="text-xs text-red-400">{error}</span>}
+
+        <button
+          type="button"
+          onClick={create}
+          disabled={busy || pending.length === 0}
+          className="rounded-md bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-900 transition-colors hover:bg-white disabled:opacity-50"
+        >
+          {busy
+            ? "…"
+            : `Créer le partage${pending.length > 1 ? ` (${pending.length})` : ""}`}
+        </button>
+      </div>
     </div>
   );
 
