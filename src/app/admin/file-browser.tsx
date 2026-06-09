@@ -18,7 +18,8 @@ import { SortControl } from "@/components/sort-control";
 import { useConfirm } from "@/components/confirm-dialog";
 import { DeleteButton } from "@/app/admin/delete-button";
 import { MoveSelect } from "@/app/admin/move-select";
-import { ShareManager, type Share } from "@/app/admin/share-manager";
+import { type Share } from "@/app/admin/share-manager";
+import { ShareDialog } from "@/app/admin/share-dialog";
 
 export type FileItem = {
   id: string;
@@ -75,7 +76,10 @@ export function FileBrowser({
   const router = useRouter();
   const confirm = useConfirm();
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [shareOpenId, setShareOpenId] = useState<string | null>(null);
+  const [shareTarget, setShareTarget] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [filter, setFilter] = useState<MediaFilter>("all");
   const [query, setQuery] = useState("");
@@ -319,7 +323,7 @@ export function FileBrowser({
                         type="button"
                         onClick={() => {
                           setSelectedId(f.id);
-                          setShareOpenId(f.id);
+                          setShareTarget({ id: f.id, name: f.original_name });
                         }}
                         className="text-zinc-400 transition-colors hover:text-zinc-100"
                       >
@@ -406,6 +410,18 @@ export function FileBrowser({
                 >
                   Télécharger
                 </a>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShareTarget({
+                      id: selected.id,
+                      name: selected.original_name,
+                    })
+                  }
+                  className="rounded-lg border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-900"
+                >
+                  Partager
+                </button>
                 <MoveSelect
                   key={selected.id}
                   fileId={selected.id}
@@ -414,17 +430,21 @@ export function FileBrowser({
                 />
                 <DeleteButton id={selected.id} name={selected.original_name} />
               </div>
-              <ShareManager
-                key={`${selected.id}-${shareOpenId}`}
-                endpoint={`/api/files/${selected.id}/shares`}
-                appUrl={appUrl}
-                initialShares={shares[selected.id] ?? []}
-                defaultOpen={shareOpenId === selected.id}
-              />
             </div>
           </div>
         )}
       </section>
+
+      {shareTarget && (
+        <ShareDialog
+          key={shareTarget.id}
+          fileId={shareTarget.id}
+          fileName={shareTarget.name}
+          appUrl={appUrl}
+          initialShares={shares[shareTarget.id] ?? []}
+          onClose={() => setShareTarget(null)}
+        />
+      )}
     </div>
   );
 }

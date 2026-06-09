@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useConfirm } from "@/components/confirm-dialog";
 
 export type Share = {
@@ -13,17 +14,19 @@ export function ShareManager({
   endpoint,
   appUrl,
   initialShares,
-  defaultOpen = false,
+  bare = false,
 }: {
   /** Route de création du partage (fichier ou dossier). */
   endpoint: string;
   appUrl: string;
   initialShares: Share[];
-  /** Ouvre le panneau d'emblée (ex. déclenché depuis l'aside). */
-  defaultOpen?: boolean;
+  /** Sans le repli « Partages / Gérer » : affiche directement le contenu
+   *  (utilisé dans la modale de partage). */
+  bare?: boolean;
 }) {
+  const router = useRouter();
   const confirm = useConfirm();
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(false);
   const [shares, setShares] = useState<Share[]>(initialShares);
   const [emails, setEmails] = useState("");
   const [busy, setBusy] = useState(false);
@@ -61,6 +64,7 @@ export function ShareManager({
           ...prev,
         ]);
         setEmails("");
+        router.refresh();
       }
     } catch {
       setError("Erreur réseau.");
@@ -77,7 +81,10 @@ export function ShareManager({
     });
     if (!ok) return;
     const res = await fetch(`/api/shares/${token}`, { method: "DELETE" });
-    if (res.ok) setShares((prev) => prev.filter((s) => s.token !== token));
+    if (res.ok) {
+      setShares((prev) => prev.filter((s) => s.token !== token));
+      router.refresh();
+    }
   }
 
   async function copy(token: string) {
@@ -90,6 +97,68 @@ export function ShareManager({
     }
   }
 
+  const content = (
+    <div className="flex flex-col gap-3">
+      {shares.length > 0 && (
+        <ul className="flex flex-col gap-2">
+          {shares.map((s) => (
+            <li
+              key={s.token}
+              className="flex flex-col gap-1 rounded-md border border-zinc-800 px-2 py-2 text-xs"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <code className="truncate text-zinc-300">/s/{s.token}</code>
+                <div className="flex shrink-0 gap-1">
+                  <button
+                    type="button"
+                    onClick={() => copy(s.token)}
+                    className="rounded border border-zinc-700 px-2 py-1 text-zinc-300 transition-colors hover:bg-zinc-800"
+                  >
+                    {copied === s.token ? "Copié ✓" : "Copier le lien"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => revoke(s.token)}
+                    className="rounded border border-zinc-800 px-2 py-1 text-zinc-400 transition-colors hover:border-red-900 hover:text-red-400"
+                  >
+                    Révoquer
+                  </button>
+                </div>
+              </div>
+              {s.emails.length > 0 && (
+                <span className="truncate text-zinc-500">
+                  {s.emails.join(", ")}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <form onSubmit={create} className="flex flex-col gap-2">
+        <input
+          autoFocus={bare}
+          value={emails}
+          onChange={(e) => setEmails(e.target.value)}
+          placeholder="emails autorisés, séparés par des virgules"
+          className="w-full rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-500"
+        />
+        <div className="flex items-center gap-2">
+          <button
+            type="submit"
+            disabled={busy}
+            className="rounded-md bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-900 transition-colors hover:bg-white disabled:opacity-60"
+          >
+            {busy ? "…" : "Créer un partage"}
+          </button>
+          {error && <span className="text-xs text-red-400">{error}</span>}
+        </div>
+      </form>
+    </div>
+  );
+
+  if (bare) return content;
+
   return (
     <div className="rounded-lg border border-zinc-800/70 bg-zinc-900/30 text-sm">
       <button
@@ -101,64 +170,7 @@ export function ShareManager({
         <span>{open ? "Masquer" : "Gérer"}</span>
       </button>
 
-      {open && (
-        <div className="flex flex-col gap-3 px-3 pb-3">
-          {shares.length > 0 && (
-            <ul className="flex flex-col gap-2">
-              {shares.map((s) => (
-                <li
-                  key={s.token}
-                  className="flex flex-col gap-1 rounded-md border border-zinc-800 px-2 py-2 text-xs"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <code className="truncate text-zinc-300">/s/{s.token}</code>
-                    <div className="flex shrink-0 gap-1">
-                      <button
-                        type="button"
-                        onClick={() => copy(s.token)}
-                        className="rounded border border-zinc-700 px-2 py-1 text-zinc-300 transition-colors hover:bg-zinc-800"
-                      >
-                        {copied === s.token ? "Copié ✓" : "Copier le lien"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => revoke(s.token)}
-                        className="rounded border border-zinc-800 px-2 py-1 text-zinc-400 transition-colors hover:border-red-900 hover:text-red-400"
-                      >
-                        Révoquer
-                      </button>
-                    </div>
-                  </div>
-                  {s.emails.length > 0 && (
-                    <span className="truncate text-zinc-500">
-                      {s.emails.join(", ")}
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <form onSubmit={create} className="flex flex-col gap-2">
-            <input
-              value={emails}
-              onChange={(e) => setEmails(e.target.value)}
-              placeholder="emails autorisés, séparés par des virgules"
-              className="w-full rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-500"
-            />
-            <div className="flex items-center gap-2">
-              <button
-                type="submit"
-                disabled={busy}
-                className="rounded-md bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-900 transition-colors hover:bg-white disabled:opacity-60"
-              >
-                {busy ? "…" : "Créer un partage"}
-              </button>
-              {error && <span className="text-xs text-red-400">{error}</span>}
-            </div>
-          </form>
-        </div>
-      )}
+      {open && <div className="px-3 pb-3">{content}</div>}
     </div>
   );
 }
