@@ -16,6 +16,13 @@ import { ShareManager, type Share } from "@/app/admin/share-manager";
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Filer · Admin" };
 
+/** Extension en majuscules pour la pastille des fichiers non-image. */
+function extLabel(name: string): string {
+  const dot = name.lastIndexOf(".");
+  const ext = dot > 0 ? name.slice(dot + 1) : "";
+  return ext.slice(0, 4).toUpperCase() || "FIC";
+}
+
 export default async function AdminPage({
   searchParams,
 }: {
@@ -119,13 +126,31 @@ export default async function AdminPage({
               {files.map((file) => (
                 <li key={file.id} className="flex flex-col gap-3 px-4 py-3">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm text-zinc-100">
-                        {file.original_name}
-                      </p>
-                      <p className="text-xs text-zinc-500">
-                        {formatBytes(file.size)} · {formatDate(file.created_at)}
-                      </p>
+                    <div className="flex min-w-0 items-center gap-3">
+                      {file.mime?.startsWith("image/") ? (
+                        // Aperçu servi inline (ne compte pas comme un téléchargement).
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={`/api/files/${file.id}?inline=1`}
+                          alt=""
+                          loading="lazy"
+                          className="size-11 shrink-0 rounded-md border border-zinc-800 object-cover"
+                        />
+                      ) : (
+                        <div className="flex size-11 shrink-0 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 text-[10px] font-medium text-zinc-500">
+                          {extLabel(file.original_name)}
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="truncate text-sm text-zinc-100">
+                          {file.original_name}
+                        </p>
+                        <p className="text-xs text-zinc-500">
+                          {formatBytes(file.size)} ·{" "}
+                          {formatDate(file.created_at)} · ↓{" "}
+                          {file.download_count}
+                        </p>
+                      </div>
                     </div>
                     <div className="flex shrink-0 flex-wrap items-center gap-2">
                       <MoveSelect

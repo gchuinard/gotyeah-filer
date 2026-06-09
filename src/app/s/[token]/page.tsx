@@ -85,6 +85,15 @@ export default async function SharePage({
           {formatBytes(file.size)} · {formatDate(file.created_at)}
         </p>
       </div>
+      {file.mime?.startsWith("image/") && (
+        // Aperçu servi inline (ne compte pas comme un téléchargement).
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={`/api/files/${file.id}?inline=1`}
+          alt={file.original_name}
+          className="max-h-80 w-full rounded-lg border border-zinc-800 object-contain"
+        />
+      )}
       <a
         href={`/api/files/${file.id}`}
         className="w-full rounded-lg bg-zinc-100 px-4 py-3 text-base font-medium text-zinc-900 transition-colors hover:bg-white"
