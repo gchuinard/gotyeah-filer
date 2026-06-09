@@ -353,6 +353,44 @@ export function FileBrowser({
       <section className="min-w-0 flex-1">
         {selected && (
           <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-3">
+              <div>
+                <h3 className="text-balance text-2xl font-semibold text-zinc-100">
+                  {selected.original_name}
+                </h3>
+                <p className="mt-1 text-sm text-zinc-500">
+                  {formatBytes(selected.size)} · {formatDate(selected.created_at)}{" "}
+                  · ↓ {selected.download_count}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <a
+                  href={`/api/files/${selected.id}`}
+                  className="rounded-lg bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 transition-colors hover:bg-white"
+                >
+                  Télécharger
+                </a>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShareTarget({
+                      id: selected.id,
+                      name: selected.original_name,
+                    })
+                  }
+                  className="rounded-lg border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-900"
+                >
+                  Partager
+                </button>
+                <MoveSelect
+                  key={selected.id}
+                  fileId={selected.id}
+                  folders={folders}
+                  current={selected.folder_id}
+                />
+                <DeleteButton id={selected.id} name={selected.original_name} />
+              </div>
+            </div>
             <div className="flex min-h-[20rem] items-center justify-center overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 p-2">
               {selected.mime?.startsWith("image/") ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -391,45 +429,6 @@ export function FileBrowser({
                   </p>
                 </div>
               )}
-            </div>
-
-            <div className="flex flex-col gap-3">
-              <div>
-                <h3 className="text-balance text-2xl font-semibold text-zinc-100">
-                  {selected.original_name}
-                </h3>
-                <p className="mt-1 text-sm text-zinc-500">
-                  {formatBytes(selected.size)} · {formatDate(selected.created_at)}{" "}
-                  · ↓ {selected.download_count}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <a
-                  href={`/api/files/${selected.id}`}
-                  className="rounded-lg bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 transition-colors hover:bg-white"
-                >
-                  Télécharger
-                </a>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setShareTarget({
-                      id: selected.id,
-                      name: selected.original_name,
-                    })
-                  }
-                  className="rounded-lg border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-900"
-                >
-                  Partager
-                </button>
-                <MoveSelect
-                  key={selected.id}
-                  fileId={selected.id}
-                  folders={folders}
-                  current={selected.folder_id}
-                />
-                <DeleteButton id={selected.id} name={selected.original_name} />
-              </div>
             </div>
           </div>
         )}
