@@ -38,7 +38,7 @@ export function MoveSelect({
       disabled={busy || folders.length === 0}
       defaultValue={current ?? ""}
       onChange={onChange}
-      className="max-w-[8rem] rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:border-zinc-500 disabled:opacity-50"
+      className="max-w-[12rem] rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:border-zinc-500 disabled:opacity-50"
     >
       <option value="">Aucun dossier</option>
       {folders.map((f) => (
