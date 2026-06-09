@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { extLabel, formatBytes, formatDate } from "@/lib/format";
-import { isAudio } from "@/lib/media";
+import { isAudio, isVideo } from "@/lib/media";
 import { useMultiSelect } from "@/lib/use-multi-select";
 import { DeleteButton } from "@/app/admin/delete-button";
 import { MoveSelect } from "@/app/admin/move-select";
@@ -289,6 +289,12 @@ export function FileBrowser({
                   src={`/api/files/${selected.id}?inline=1`}
                   alt={selected.original_name}
                   className="max-h-[78vh] w-auto max-w-full rounded object-contain"
+                />
+              ) : isVideo(selected.mime, selected.original_name) ? (
+                <video
+                  controls
+                  src={`/api/files/${selected.id}?inline=1`}
+                  className="max-h-[78vh] max-w-full rounded"
                 />
               ) : isAudio(selected.mime, selected.original_name) ? (
                 <div className="flex w-full max-w-xl flex-col items-center gap-5 px-4 py-10">
