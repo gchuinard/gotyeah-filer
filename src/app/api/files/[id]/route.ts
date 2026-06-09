@@ -12,7 +12,7 @@ import {
   storedFilePath,
 } from "@/lib/files";
 import { getFolder } from "@/lib/folders";
-import { mediaContentType } from "@/lib/media";
+import { isInlineSafe, mediaContentType } from "@/lib/media";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,7 +54,12 @@ export async function GET(
     return new Response("Fichier manquant sur le disque", { status: 404 });
   }
 
-  const inline = request.nextUrl.searchParams.has("inline");
+  // On ne sert EN LIGNE que les types « inertes » sûrs (image hors SVG, audio,
+  // vidéo, PDF) ; sinon on force le téléchargement même si `?inline=1` est passé
+  // (un .html/.svg servi inline s'exécuterait sur notre origine).
+  const inline =
+    request.nextUrl.searchParams.has("inline") &&
+    isInlineSafe(file.mime, file.original_name);
 
   // filename* (UTF-8) pour les accents/emoji ; filename ASCII en repli.
   const fallback = file.original_name

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { extLabel, formatBytes, formatDate } from "@/lib/format";
-import { isAudio, isVideo } from "@/lib/media";
+import { isAudio, isPdf, isVideo } from "@/lib/media";
 import { useMultiSelect } from "@/lib/use-multi-select";
 
 export type GalleryFile = {
@@ -210,6 +210,12 @@ export function FolderGallery({
                         className="w-full"
                       />
                     </div>
+                  ) : isPdf(selected.mime, selected.original_name) ? (
+                    <iframe
+                      title={selected.original_name}
+                      src={`/api/files/${selected.id}?inline=1`}
+                      className="h-[78vh] w-full rounded border-0 bg-white"
+                    />
                   ) : (
                     <div className="flex flex-col items-center gap-3 py-12 text-center">
                       <Thumb file={selected} big />
