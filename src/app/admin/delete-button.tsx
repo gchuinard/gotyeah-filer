@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useConfirm } from "@/components/confirm-dialog";
 
 export function DeleteButton({
   id,
@@ -19,14 +20,17 @@ export function DeleteButton({
   onDeleted?: () => void;
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
 
   async function onDelete() {
-    if (
-      !window.confirm(`Supprimer « ${name} » ? Cette action est définitive.`)
-    ) {
-      return;
-    }
+    const ok = await confirm({
+      title: "Supprimer ce fichier ?",
+      message: `« ${name} » sera supprimé définitivement.`,
+      confirmLabel: "Supprimer",
+      danger: true,
+    });
+    if (!ok) return;
     setBusy(true);
     try {
       const res = await fetch(`/api/files/${id}`, { method: "DELETE" });

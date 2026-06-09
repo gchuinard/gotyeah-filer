@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useConfirm } from "@/components/confirm-dialog";
 
 export type Share = {
   token: string;
@@ -21,6 +22,7 @@ export function ShareManager({
   /** Ouvre le panneau d'emblée (ex. déclenché depuis l'aside). */
   defaultOpen?: boolean;
 }) {
+  const confirm = useConfirm();
   const [open, setOpen] = useState(defaultOpen);
   const [shares, setShares] = useState<Share[]>(initialShares);
   const [emails, setEmails] = useState("");
@@ -67,9 +69,13 @@ export function ShareManager({
   }
 
   async function revoke(token: string) {
-    if (!window.confirm("Révoquer ce partage ? Le lien cessera de fonctionner.")) {
-      return;
-    }
+    const ok = await confirm({
+      title: "Révoquer ce partage ?",
+      message: "Le lien cessera immédiatement de fonctionner.",
+      confirmLabel: "Révoquer",
+      danger: true,
+    });
+    if (!ok) return;
     const res = await fetch(`/api/shares/${token}`, { method: "DELETE" });
     if (res.ok) setShares((prev) => prev.filter((s) => s.token !== token));
   }

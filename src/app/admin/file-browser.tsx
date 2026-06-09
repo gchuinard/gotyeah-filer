@@ -15,6 +15,7 @@ import { useMultiSelect } from "@/lib/use-multi-select";
 import { sortFiles, type SortField, type SortDir } from "@/lib/sort";
 import { FilterChips } from "@/components/filter-chips";
 import { SortControl } from "@/components/sort-control";
+import { useConfirm } from "@/components/confirm-dialog";
 import { DeleteButton } from "@/app/admin/delete-button";
 import { MoveSelect } from "@/app/admin/move-select";
 import { ShareManager, type Share } from "@/app/admin/share-manager";
@@ -72,6 +73,7 @@ export function FileBrowser({
   noFilesAtAll: boolean;
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [shareOpenId, setShareOpenId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -155,13 +157,13 @@ export function FileBrowser({
 
   async function bulkDelete() {
     if (checked.size === 0) return;
-    if (
-      !window.confirm(
-        `Supprimer ${checked.size} fichier${checked.size > 1 ? "s" : ""} ? Cette action est définitive.`,
-      )
-    ) {
-      return;
-    }
+    const ok = await confirm({
+      title: `Supprimer ${checked.size} fichier${checked.size > 1 ? "s" : ""} ?`,
+      message: "Cette action est définitive.",
+      confirmLabel: "Supprimer",
+      danger: true,
+    });
+    if (!ok) return;
     setBulkBusy(true);
     try {
       await Promise.all(

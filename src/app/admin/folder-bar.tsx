@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useConfirm } from "@/components/confirm-dialog";
 
 export type FolderChip = { id: string; name: string; count: number };
 
@@ -18,6 +19,7 @@ export function FolderBar({
   active: string; // "all" | "none" | <folderId>
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -60,13 +62,14 @@ export function FolderBar({
 
   async function remove() {
     if (!activeFolder) return;
-    if (
-      !window.confirm(
-        `Supprimer le dossier « ${activeFolder.name} » ? Les fichiers reviennent à la racine.`,
-      )
-    ) {
-      return;
-    }
+    const ok = await confirm({
+      title: `Supprimer le dossier « ${activeFolder.name} » ?`,
+      message:
+        "Les fichiers qu'il contient reviennent à la racine (ils ne sont pas supprimés).",
+      confirmLabel: "Supprimer",
+      danger: true,
+    });
+    if (!ok) return;
     const res = await fetch(`/api/folders/${activeFolder.id}`, {
       method: "DELETE",
     });
