@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useConfirm } from "@/components/confirm-dialog";
+import { navKeyBlocked } from "@/lib/use-list-keyboard-nav";
 
 export type FolderChip = { id: string; name: string; count: number };
 
@@ -25,6 +26,44 @@ export function FolderBar({
   const [busy, setBusy] = useState(false);
 
   const activeFolder = folders.find((f) => f.id === active) ?? null;
+
+  // Flèches ←/→ : change de dossier (Tous → dossiers → Non classés), dans le
+  // même ordre que les chips. Empêche le défilement horizontal éventuel.
+  const navRef = useRef<{ keys: string[]; hrefs: string[]; active: string }>({
+    keys: [],
+    hrefs: [],
+    active,
+  });
+  useEffect(() => {
+    navRef.current = {
+      keys: ["all", ...folders.map((f) => f.id), "none"],
+      hrefs: [
+        "/admin",
+        ...folders.map((f) => `/admin?folder=${f.id}`),
+        "/admin?folder=none",
+      ],
+      active,
+    };
+  });
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
+      if (navKeyBlocked()) return;
+      const { keys, hrefs, active } = navRef.current;
+      const i = keys.indexOf(active);
+      const cur = i < 0 ? 0 : i;
+      const next =
+        e.key === "ArrowRight"
+          ? Math.min(cur + 1, keys.length - 1)
+          : Math.max(cur - 1, 0);
+      e.preventDefault();
+      if (next !== cur) router.push(hrefs[next]);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [router]);
 
   async function createFolder(e: React.FormEvent) {
     e.preventDefault();

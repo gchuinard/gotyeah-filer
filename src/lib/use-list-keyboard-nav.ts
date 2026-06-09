@@ -1,10 +1,28 @@
 import { useEffect, useRef } from "react";
 
 /**
+ * Faut-il ignorer une touche de navigation ? Oui si une modale est ouverte, si
+ * on saisit dans un champ, ou si un menu déroulant / lecteur média est focalisé
+ * (là les flèches ont déjà un rôle natif).
+ */
+export function navKeyBlocked(): boolean {
+  if (typeof document === "undefined") return true;
+  if (document.querySelector('[role="dialog"][aria-modal="true"]')) return true;
+  const el = document.activeElement as HTMLElement | null;
+  const tag = el?.tagName;
+  return (
+    tag === "INPUT" ||
+    tag === "TEXTAREA" ||
+    tag === "SELECT" ||
+    tag === "VIDEO" ||
+    tag === "AUDIO" ||
+    !!el?.isContentEditable
+  );
+}
+
+/**
  * Navigation clavier ↑/↓ dans une liste de fichiers : sélectionne le précédent /
- * suivant et empêche le défilement de la page. Ignoré quand on saisit (input,
- * textarea, select), qu'un lecteur média est focalisé (le ↑/↓ règle le volume)
- * ou qu'une modale est ouverte.
+ * suivant et empêche le défilement de la page.
  */
 export function useListKeyboardNav(
   items: { id: string }[],
@@ -27,21 +45,7 @@ export function useListKeyboardNav(
     function onKey(e: KeyboardEvent) {
       if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
       if (e.altKey || e.ctrlKey || e.metaKey) return;
-      // Modale ouverte (partage, confirmation…) : on laisse la main.
-      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
-
-      const el = document.activeElement as HTMLElement | null;
-      const tag = el?.tagName;
-      if (
-        tag === "INPUT" ||
-        tag === "TEXTAREA" ||
-        tag === "SELECT" ||
-        tag === "VIDEO" ||
-        tag === "AUDIO" ||
-        el?.isContentEditable
-      ) {
-        return;
-      }
+      if (navKeyBlocked()) return;
 
       const list = itemsRef.current;
       if (list.length === 0) return;
