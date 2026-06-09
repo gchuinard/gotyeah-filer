@@ -12,6 +12,7 @@ import {
   type MediaFilter,
 } from "@/lib/media";
 import { useMultiSelect } from "@/lib/use-multi-select";
+import { useListKeyboardNav } from "@/lib/use-list-keyboard-nav";
 import { sortFiles, type SortField, type SortDir } from "@/lib/sort";
 import { FilterChips } from "@/components/filter-chips";
 import { SortControl } from "@/components/sort-control";
@@ -106,6 +107,9 @@ export function FileBrowser({
   // plus (ex. après suppression/refresh) ou n'est plus dans la vue.
   const selected =
     visible.find((f) => f.id === selectedId) ?? visible[0] ?? null;
+
+  // Flèches ↑/↓ : passe au fichier précédent / suivant (au lieu de scroller).
+  useListKeyboardNav(visible, selected?.id ?? null, setSelectedId);
 
   // Changer la vue (filtre/recherche) réinitialise la sélection (évite des
   // coches « cachées » qui seraient incluses dans une action groupée).
@@ -287,6 +291,7 @@ export function FileBrowser({
             return (
               <li
                 key={f.id}
+                data-navitem={f.id}
                 className={active ? "bg-zinc-900/60" : "hover:bg-zinc-900/30"}
               >
                 <div className="flex items-start gap-2 px-3 py-2.5">
