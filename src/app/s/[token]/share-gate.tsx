@@ -5,7 +5,13 @@ import { enterShare, type EnterState } from "@/app/s/[token]/actions";
 
 const initialState: EnterState = {};
 
-export function ShareGate({ token }: { token: string }) {
+export function ShareGate({
+  token,
+  cta = "Accéder au fichier",
+}: {
+  token: string;
+  cta?: string;
+}) {
   const [state, formAction, pending] = useActionState(enterShare, initialState);
 
   return (
@@ -28,7 +34,7 @@ export function ShareGate({ token }: { token: string }) {
         disabled={pending}
         className="w-full rounded-lg bg-zinc-100 px-4 py-3 text-base font-medium text-zinc-900 transition-colors hover:bg-white disabled:opacity-60"
       >
-        {pending ? "Vérification…" : "Accéder au fichier"}
+        {pending ? "Vérification…" : cta}
       </button>
       {state.error && (
         <p className="text-sm text-red-400" role="alert">

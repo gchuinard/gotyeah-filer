@@ -6,7 +6,7 @@ import { getAppUrl } from "@/lib/config";
 import { listFiles } from "@/lib/files";
 import { listFolders } from "@/lib/folders";
 import { listShares, parseAllowedEmails } from "@/lib/shares";
-import { formatBytes, formatDate } from "@/lib/format";
+import { extLabel, formatBytes, formatDate } from "@/lib/format";
 import { UploadZone } from "@/app/admin/upload-zone";
 import { DeleteButton } from "@/app/admin/delete-button";
 import { MoveSelect } from "@/app/admin/move-select";
@@ -15,13 +15,6 @@ import { ShareManager, type Share } from "@/app/admin/share-manager";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Filer · Admin" };
-
-/** Extension en majuscules pour la pastille des fichiers non-image. */
-function extLabel(name: string): string {
-  const dot = name.lastIndexOf(".");
-  const ext = dot > 0 ? name.slice(dot + 1) : "";
-  return ext.slice(0, 4).toUpperCase() || "FIC";
-}
 
 export default async function AdminPage({
   searchParams,
@@ -69,17 +62,26 @@ export default async function AdminPage({
     return f.folder_id === active;
   });
 
-  // Partages regroupés par fichier (une seule requête).
+  // Partages regroupés par cible (une seule requête) : fichiers d'un côté,
+  // dossiers de l'autre (un partage vise l'un OU l'autre).
   const sharesByFile = new Map<string, Share[]>();
+  const sharesByFolder = new Map<string, Share[]>();
   for (const s of listShares()) {
-    const list = sharesByFile.get(s.file_id) ?? [];
-    list.push({
+    const entry: Share = {
       token: s.token,
       emails: parseAllowedEmails(s),
       created_at: s.created_at,
-    });
-    sharesByFile.set(s.file_id, list);
+    };
+    if (s.file_id) {
+      sharesByFile.set(s.file_id, [...(sharesByFile.get(s.file_id) ?? []), entry]);
+    } else if (s.folder_id) {
+      sharesByFolder.set(s.folder_id, [
+        ...(sharesByFolder.get(s.folder_id) ?? []),
+        entry,
+      ]);
+    }
   }
+  const activeFolder = folders.find((f) => f.id === activeFolderId) ?? null;
 
   return (
     <div className="flex flex-1 flex-col">
@@ -105,6 +107,21 @@ export default async function AdminPage({
           totalCount={allFiles.length}
           active={active}
         />
+
+        {activeFolder && (
+          <div className="mt-4 rounded-xl border border-zinc-800 px-4 py-3">
+            <p className="mb-2 text-xs text-zinc-400">
+              Partager le dossier{" "}
+              <span className="text-zinc-200">« {activeFolder.name} »</span> —
+              tous ses fichiers, lien unique.
+            </p>
+            <ShareManager
+              endpoint={`/api/folders/${activeFolder.id}/shares`}
+              appUrl={appUrl}
+              initialShares={sharesByFolder.get(activeFolder.id) ?? []}
+            />
+          </div>
+        )}
 
         <div className="mt-6">
           <UploadZone folderId={activeFolderId} />
@@ -168,7 +185,7 @@ export default async function AdminPage({
                     </div>
                   </div>
                   <ShareManager
-                    fileId={file.id}
+                    endpoint={`/api/files/${file.id}/shares`}
                     appUrl={appUrl}
                     initialShares={sharesByFile.get(file.id) ?? []}
                   />

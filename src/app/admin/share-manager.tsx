@@ -9,11 +9,12 @@ export type Share = {
 };
 
 export function ShareManager({
-  fileId,
+  endpoint,
   appUrl,
   initialShares,
 }: {
-  fileId: string;
+  /** Route de création du partage (fichier ou dossier). */
+  endpoint: string;
   appUrl: string;
   initialShares: Share[];
 }) {
@@ -40,7 +41,7 @@ export function ShareManager({
     }
     setBusy(true);
     try {
-      const res = await fetch(`/api/files/${fileId}/shares`, {
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ emails: list }),
