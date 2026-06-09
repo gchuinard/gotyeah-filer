@@ -49,7 +49,7 @@ export function FolderGallery({
   const selected = files.find((f) => f.id === selectedId) ?? files[0] ?? null;
 
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-4 py-10 sm:px-6">
+    <main className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col px-3 py-6 sm:px-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-col gap-1">
           <p className="text-xs uppercase tracking-wide text-zinc-500">
@@ -76,9 +76,9 @@ export function FolderGallery({
         </p>
       ) : (
         <div className="mt-6 flex flex-col gap-4 md:flex-row md:gap-6">
-          {/* Aside : liste + download par ligne */}
-          <aside className="md:w-80 md:shrink-0">
-            <ul className="flex flex-col divide-y divide-zinc-800 overflow-hidden rounded-xl border border-zinc-800">
+          {/* Aside : liste défilante + download par ligne */}
+          <aside className="md:sticky md:top-4 md:w-80 md:shrink-0 md:self-start">
+            <ul className="flex max-h-[60vh] flex-col divide-y divide-zinc-800 overflow-y-auto overflow-x-hidden rounded-xl border border-zinc-800 md:max-h-[calc(100vh-2rem)]">
               {files.map((f) => {
                 const active = selected?.id === f.id;
                 return (
@@ -121,13 +121,13 @@ export function FolderGallery({
           <section className="min-w-0 flex-1">
             {selected && (
               <div className="flex flex-col gap-4">
-                <div className="flex min-h-[16rem] items-center justify-center overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 p-2">
+                <div className="flex min-h-[20rem] items-center justify-center overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 p-2">
                   {selected.mime?.startsWith("image/") ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={`/api/files/${selected.id}?inline=1`}
                       alt={selected.original_name}
-                      className="max-h-[70vh] w-auto max-w-full rounded object-contain"
+                      className="max-h-[78vh] w-auto max-w-full rounded object-contain"
                     />
                   ) : (
                     <div className="flex flex-col items-center gap-3 py-12 text-center">
@@ -140,10 +140,10 @@ export function FolderGallery({
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <h2 className="text-balance text-lg font-semibold text-zinc-100">
+                    <h2 className="text-balance text-2xl font-semibold text-zinc-100">
                       {selected.original_name}
                     </h2>
-                    <p className="text-sm text-zinc-500">
+                    <p className="mt-1 text-sm text-zinc-500">
                       {formatBytes(selected.size)} ·{" "}
                       {formatDate(selected.created_at)}
                     </p>

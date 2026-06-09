@@ -110,7 +110,7 @@ export default async function AdminPage({
         </form>
       </header>
 
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-6">
+      <main className="mx-auto w-full max-w-[1700px] flex-1 px-3 py-6 sm:px-4">
         <FolderBar
           folders={folderChips}
           rootCount={rootCount}
