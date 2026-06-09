@@ -12,13 +12,16 @@ export function ShareManager({
   endpoint,
   appUrl,
   initialShares,
+  defaultOpen = false,
 }: {
   /** Route de création du partage (fichier ou dossier). */
   endpoint: string;
   appUrl: string;
   initialShares: Share[];
+  /** Ouvre le panneau d'emblée (ex. déclenché depuis l'aside). */
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [shares, setShares] = useState<Share[]>(initialShares);
   const [emails, setEmails] = useState("");
   const [busy, setBusy] = useState(false);

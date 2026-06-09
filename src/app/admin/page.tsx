@@ -6,12 +6,10 @@ import { getAppUrl } from "@/lib/config";
 import { listFiles } from "@/lib/files";
 import { listFolders } from "@/lib/folders";
 import { listShares, parseAllowedEmails } from "@/lib/shares";
-import { extLabel, formatBytes, formatDate } from "@/lib/format";
 import { UploadZone } from "@/app/admin/upload-zone";
-import { DeleteButton } from "@/app/admin/delete-button";
-import { MoveSelect } from "@/app/admin/move-select";
 import { FolderBar } from "@/app/admin/folder-bar";
 import { ShareManager, type Share } from "@/app/admin/share-manager";
+import { FileBrowser } from "@/app/admin/file-browser";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Filer · Admin" };
@@ -82,6 +80,18 @@ export default async function AdminPage({
     }
   }
   const activeFolder = folders.find((f) => f.id === activeFolderId) ?? null;
+  // Map -> objet sérialisable pour le composant client.
+  const sharesByFileObj = Object.fromEntries(sharesByFile);
+  // On n'envoie au client que les champs utiles (pas stored_name).
+  const fileItems = files.map((f) => ({
+    id: f.id,
+    original_name: f.original_name,
+    mime: f.mime,
+    size: f.size,
+    created_at: f.created_at,
+    folder_id: f.folder_id,
+    download_count: f.download_count,
+  }));
 
   return (
     <div className="flex flex-1 flex-col">
@@ -100,7 +110,7 @@ export default async function AdminPage({
         </form>
       </header>
 
-      <main className="mx-auto w-full max-w-2xl flex-1 px-4 py-8 sm:px-6">
+      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-6">
         <FolderBar
           folders={folderChips}
           rootCount={rootCount}
@@ -128,71 +138,13 @@ export default async function AdminPage({
         </div>
 
         <section className="mt-10">
-          <h2 className="mb-3 text-sm font-medium text-zinc-400">
-            Fichiers ({files.length})
-          </h2>
-
-          {files.length === 0 ? (
-            <p className="rounded-xl border border-zinc-800 px-4 py-10 text-center text-sm text-zinc-500">
-              {allFiles.length === 0
-                ? "Aucun fichier pour l'instant. Dépose ton premier fichier ci-dessus."
-                : "Aucun fichier dans cette vue."}
-            </p>
-          ) : (
-            <ul className="flex flex-col divide-y divide-zinc-800 overflow-hidden rounded-xl border border-zinc-800">
-              {files.map((file) => (
-                <li key={file.id} className="flex flex-col gap-3 px-4 py-3">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex min-w-0 items-center gap-3">
-                      {file.mime?.startsWith("image/") ? (
-                        // Aperçu servi inline (ne compte pas comme un téléchargement).
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={`/api/files/${file.id}?inline=1`}
-                          alt=""
-                          loading="lazy"
-                          className="size-11 shrink-0 rounded-md border border-zinc-800 object-cover"
-                        />
-                      ) : (
-                        <div className="flex size-11 shrink-0 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 text-[10px] font-medium text-zinc-500">
-                          {extLabel(file.original_name)}
-                        </div>
-                      )}
-                      <div className="min-w-0">
-                        <p className="truncate text-sm text-zinc-100">
-                          {file.original_name}
-                        </p>
-                        <p className="text-xs text-zinc-500">
-                          {formatBytes(file.size)} ·{" "}
-                          {formatDate(file.created_at)} · ↓{" "}
-                          {file.download_count}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 flex-wrap items-center gap-2">
-                      <MoveSelect
-                        fileId={file.id}
-                        folders={folderOptions}
-                        current={file.folder_id}
-                      />
-                      <a
-                        href={`/api/files/${file.id}`}
-                        className="rounded-lg bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 transition-colors hover:bg-white"
-                      >
-                        Télécharger
-                      </a>
-                      <DeleteButton id={file.id} name={file.original_name} />
-                    </div>
-                  </div>
-                  <ShareManager
-                    endpoint={`/api/files/${file.id}/shares`}
-                    appUrl={appUrl}
-                    initialShares={sharesByFile.get(file.id) ?? []}
-                  />
-                </li>
-              ))}
-            </ul>
-          )}
+          <FileBrowser
+            files={fileItems}
+            folders={folderOptions}
+            appUrl={appUrl}
+            shares={sharesByFileObj}
+            noFilesAtAll={allFiles.length === 0}
+          />
         </section>
       </main>
     </div>

@@ -3,7 +3,21 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-export function DeleteButton({ id, name }: { id: string; name: string }) {
+export function DeleteButton({
+  id,
+  name,
+  className,
+  label = "Supprimer",
+  onDeleted,
+}: {
+  id: string;
+  name: string;
+  /** Style optionnel (sinon bouton bordé par défaut). */
+  className?: string;
+  label?: string;
+  /** Appelé après suppression réussie (avant le refresh). */
+  onDeleted?: () => void;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
 
@@ -21,6 +35,7 @@ export function DeleteButton({ id, name }: { id: string; name: string }) {
         setBusy(false);
         return;
       }
+      onDeleted?.();
       router.refresh();
     } catch {
       window.alert("Erreur réseau.");
@@ -33,9 +48,12 @@ export function DeleteButton({ id, name }: { id: string; name: string }) {
       type="button"
       onClick={onDelete}
       disabled={busy}
-      className="rounded-lg border border-zinc-800 px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:border-red-900 hover:text-red-400 disabled:opacity-50"
+      className={
+        className ??
+        "rounded-lg border border-zinc-800 px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:border-red-900 hover:text-red-400 disabled:opacity-50"
+      }
     >
-      {busy ? "…" : "Supprimer"}
+      {busy ? "…" : label}
     </button>
   );
 }
