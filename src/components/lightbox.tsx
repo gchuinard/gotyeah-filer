@@ -97,6 +97,7 @@ export function Lightbox({
   onPrev,
   onNext,
   onClose,
+  srcMap,
 }: {
   file: LightboxFile;
   hasPrev: boolean;
@@ -104,6 +105,12 @@ export function Lightbox({
   onPrev: () => void;
   onNext: () => void;
   onClose: () => void;
+  /**
+   * Cache id → object URL d'images préchargées (« mode hors-ligne »). Si l'image
+   * courante y figure, on l'affiche depuis le blob local → la navigation ne
+   * touche pas le réseau (pas de 404 en plein spectacle). Sinon repli réseau.
+   */
+  srcMap?: Map<string, string>;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFs, setIsFs] = useState(false);
@@ -206,7 +213,8 @@ export function Lightbox({
     return () => prevFocus?.focus?.();
   }, [prevFocus]);
 
-  const src = `/api/files/${file.id}?inline=1`;
+  // Blob préchargé (hors-ligne) si dispo, sinon lecture inline réseau.
+  const src = srcMap?.get(file.id) ?? `/api/files/${file.id}?inline=1`;
   const stop = (e: React.MouseEvent) => e.stopPropagation();
 
   // En vrai plein écran, on occupe tout l'écran (pas de marge) pour la projection.

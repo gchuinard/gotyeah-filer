@@ -18,6 +18,8 @@ import { FilterChips } from "@/components/filter-chips";
 import { SortControl } from "@/components/sort-control";
 import { useConfirm } from "@/components/confirm-dialog";
 import { Lightbox } from "@/components/lightbox";
+import { ProjectionPrep } from "@/components/projection-prep";
+import { useImagePreload } from "@/lib/use-image-preload";
 import { ImageEditor } from "@/components/image-editor";
 import { DeleteButton } from "@/app/admin/delete-button";
 import { MoveSelect } from "@/app/admin/move-select";
@@ -85,6 +87,7 @@ export function FileBrowser({
   } | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [lightbox, setLightbox] = useState(false);
+  const [offline, setOffline] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [filter, setFilter] = useState<MediaFilter>("all");
   const [query, setQuery] = useState("");
@@ -128,6 +131,14 @@ export function FileBrowser({
   const lbIndex = selected
     ? visible.findIndex((f) => f.id === selected.id)
     : -1;
+
+  // Préchargement « projection hors-ligne » des images de la vue courante.
+  const preload = useImagePreload(visible, offline);
+  const imageCount = visible.filter((f) =>
+    f.mime?.startsWith("image/"),
+  ).length;
+  const inlineSrc = (f: FileItem) =>
+    preload.urls.get(f.id) ?? `/api/files/${f.id}?inline=1`;
 
   // Image matricielle retouchable (le SVG est exclu : non pixellisable proprement).
   const canEdit =
@@ -246,6 +257,12 @@ export function FileBrowser({
               dir={sortDir}
               onField={setSortField}
               onToggleDir={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+            />
+            <ProjectionPrep
+              imageCount={imageCount}
+              enabled={offline}
+              onToggle={setOffline}
+              state={preload}
             />
             <div className="mb-2 flex items-center justify-between gap-2">
           <label className="flex items-center gap-2 text-xs font-medium text-zinc-500">
@@ -451,7 +468,7 @@ export function FileBrowser({
               {selected.mime?.startsWith("image/") ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={`/api/files/${selected.id}?inline=1`}
+                  src={inlineSrc(selected)}
                   alt={selected.original_name}
                   onClick={() => setLightbox(true)}
                   className="max-h-[78vh] w-auto max-w-full cursor-zoom-in rounded object-contain"
@@ -511,6 +528,7 @@ export function FileBrowser({
           onPrev={() => lightboxStep(-1)}
           onNext={() => lightboxStep(1)}
           onClose={() => setLightbox(false)}
+          srcMap={preload.urls}
         />
       )}
     </div>
