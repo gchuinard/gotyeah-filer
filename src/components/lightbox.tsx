@@ -61,6 +61,28 @@ function exitFs(): Promise<void> {
   }
 }
 
+/** Image qui apparaît en fondu une fois chargée (transition de projection). */
+function FadeImage({
+  src,
+  alt,
+  className,
+}: {
+  src: string;
+  alt: string;
+  className: string;
+}) {
+  const [loaded, setLoaded] = useState(false);
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt={alt}
+      onLoad={() => setLoaded(true)}
+      className={`${className} transition-opacity duration-500 ${loaded ? "opacity-100" : "opacity-0"}`}
+    />
+  );
+}
+
 /**
  * Aperçu plein écran d'un fichier (« mode projection »). À l'ouverture, on tente
  * le VRAI plein écran immersif (Fullscreen API) ; à défaut on reste sur un
@@ -268,8 +290,8 @@ export function Lightbox({
         className="flex max-h-full max-w-full items-center justify-center"
       >
         {file.mime?.startsWith("image/") ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <FadeImage
+            key={file.id}
             src={src}
             alt={file.original_name}
             className={`${mediaSize} rounded object-contain`}
