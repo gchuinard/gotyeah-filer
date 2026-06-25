@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { isAudio, isPdf, isVideo } from "@/lib/media";
 
 type LightboxFile = {
@@ -9,9 +15,58 @@ type LightboxFile = {
   mime: string | null;
 };
 
+/* ---- Fullscreen API (avec repli webkit pour Safari/iPad) -------------------
+ * iOS Safari (iPhone) ne sait pas mettre un <div> en plein écran : les helpers
+ * renvoient alors « non supporté » et la lightbox reste un simple overlay noir
+ * (dégradation gracieuse). Sur desktop / Android, on passe en VRAI plein écran
+ * immersif (hors du cadre du navigateur) — c'est le « mode projection ». */
+type FsElement = HTMLElement & {
+  webkitRequestFullscreen?: () => Promise<void> | void;
+};
+type FsDocument = Document & {
+  webkitFullscreenElement?: Element | null;
+  webkitExitFullscreen?: () => Promise<void> | void;
+  webkitFullscreenEnabled?: boolean;
+};
+
+const fsDoc = () => document as FsDocument;
+
+function fsActive(): boolean {
+  return !!(document.fullscreenElement || fsDoc().webkitFullscreenElement);
+}
+function fsEnabled(): boolean {
+  return !!(document.fullscreenEnabled || fsDoc().webkitFullscreenEnabled);
+}
+function enterFs(el: HTMLElement): Promise<void> {
+  const fn =
+    el.requestFullscreen?.bind(el) ??
+    (el as FsElement).webkitRequestFullscreen?.bind(el);
+  if (!fn) return Promise.resolve();
+  try {
+    return Promise.resolve(fn()).catch(() => {});
+  } catch {
+    return Promise.resolve();
+  }
+}
+function exitFs(): Promise<void> {
+  if (!fsActive()) return Promise.resolve();
+  const fn =
+    document.exitFullscreen?.bind(document) ??
+    fsDoc().webkitExitFullscreen?.bind(document);
+  if (!fn) return Promise.resolve();
+  try {
+    return Promise.resolve(fn()).catch(() => {});
+  } catch {
+    return Promise.resolve();
+  }
+}
+
 /**
- * Aperçu plein écran d'un fichier. Flèches = fichier précédent/suivant ;
- * Échap / Entrée / Espace / clic sur le fond = fermer.
+ * Aperçu plein écran d'un fichier (« mode projection »). À l'ouverture, on tente
+ * le VRAI plein écran immersif (Fullscreen API) ; à défaut on reste sur un
+ * overlay noir. Flèches = fichier précédent/suivant ; `F` ou le bouton = (re)passer
+ * en plein écran ; Échap / Entrée / Espace / clic sur le fond = quitter. Sortir du
+ * plein écran réel (Échap, UI du navigateur) quitte la projection.
  */
 export function Lightbox({
   file,
@@ -28,45 +83,153 @@ export function Lightbox({
   onNext: () => void;
   onClose: () => void;
 }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isFs, setIsFs] = useState(false);
+  const [fsSupported] = useState(
+    () => typeof document !== "undefined" && fsEnabled(),
+  );
+  // Élément qui avait le focus avant l'ouverture, pour le restaurer à la
+  // fermeture (capté au render, donc AVANT que `autoFocus` ne le déplace).
+  const [prevFocus] = useState<HTMLElement | null>(() =>
+    typeof document !== "undefined"
+      ? (document.activeElement as HTMLElement | null)
+      : null,
+  );
+
+  // Callbacks toujours frais sans re-souscrire les listeners à chaque render
+  // du parent (évite le churn add/removeEventListener et les closures obsolètes).
+  const handlers = useRef({ onPrev, onNext, onClose });
+  useEffect(() => {
+    handlers.current = { onPrev, onNext, onClose };
+  });
+
+  // Le composant est-il encore monté ? Garde les effets asynchrones (Promise de
+  // la Fullscreen API) de toucher un composant démonté.
+  const aliveRef = useRef(true);
+  // A-t-on réussi à entrer en vrai plein écran ? Si oui, en sortir ferme la projection.
+  const enteredFsRef = useRef(false);
+
+  const goFullscreen = useCallback(() => {
+    const el = containerRef.current;
+    if (!el || fsActive()) return;
+    void enterFs(el).then(() => {
+      // Fermé avant la fin de la transition → ressortir (pas de plein écran orphelin).
+      if (!aliveRef.current) void exitFs();
+    });
+  }, []);
+
+  // À l'ouverture : tenter le vrai plein écran. `useLayoutEffect` → l'appel part
+  // SYNCHRONEMENT dans le flush de l'évènement (clic / touche) qui a ouvert la
+  // lightbox, donc à l'intérieur de l'« activation utilisateur » exigée par la
+  // spec Fullscreen (sinon Firefox/Safari refusent). Repli garanti : le bouton
+  // « Plein écran » (geste direct sur un élément déjà monté).
+  useLayoutEffect(() => {
+    aliveRef.current = true;
+    if (fsSupported) goFullscreen();
+    return () => {
+      aliveRef.current = false;
+      void exitFs();
+    };
+  }, [fsSupported, goFullscreen]);
+
+  // Suit l'état plein écran ; en SORTIR (Échap, UI du navigateur) ferme la projection.
+  useEffect(() => {
+    function onFsChange() {
+      const active = fsActive();
+      if (aliveRef.current) setIsFs(active);
+      if (active) enteredFsRef.current = true;
+      else if (enteredFsRef.current) {
+        enteredFsRef.current = false;
+        handlers.current.onClose();
+      }
+    }
+    document.addEventListener("fullscreenchange", onFsChange);
+    document.addEventListener("webkitfullscreenchange", onFsChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", onFsChange);
+      document.removeEventListener("webkitfullscreenchange", onFsChange);
+    };
+  }, []);
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape" || e.key === "Enter" || e.key === " ") {
+      if (e.key === "Escape") {
+        // En vrai plein écran, le navigateur intercepte Échap pour en sortir
+        // (→ fullscreenchange → fermeture). Sinon, on ferme nous-mêmes.
+        if (!fsActive()) {
+          e.preventDefault();
+          handlers.current.onClose();
+        }
+      } else if (e.key === "Enter" || e.key === " ") {
+        // Fermeture immédiate ; le démontage sort du plein écran tout seul.
         e.preventDefault();
-        onClose();
+        handlers.current.onClose();
       } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
         e.preventDefault();
-        onNext();
+        handlers.current.onNext();
       } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
         e.preventDefault();
-        onPrev();
+        handlers.current.onPrev();
+      } else if (e.key === "f" || e.key === "F") {
+        e.preventDefault();
+        goFullscreen();
       }
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onClose, onNext, onPrev]);
+  }, [goFullscreen]);
+
+  // Restaure le focus à la fermeture (a11y modale).
+  useEffect(() => {
+    return () => prevFocus?.focus?.();
+  }, [prevFocus]);
 
   const src = `/api/files/${file.id}?inline=1`;
   const stop = (e: React.MouseEvent) => e.stopPropagation();
 
+  // En vrai plein écran, on occupe tout l'écran (pas de marge) pour la projection.
+  const mediaSize = isFs
+    ? "max-h-screen max-w-[100vw]"
+    : "max-h-[92vh] max-w-[94vw]";
+  const frameSize = isFs ? "h-screen w-[100vw]" : "h-[92vh] w-[94vw]";
+
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 p-4"
+      ref={containerRef}
+      className={`fixed inset-0 z-[60] flex items-center justify-center bg-black ${isFs ? "p-0" : "p-4"}`}
       role="dialog"
       aria-modal="true"
       aria-label={file.original_name}
-      onClick={onClose}
+      onClick={() => handlers.current.onClose()}
     >
-      <button
-        type="button"
-        aria-label="Fermer"
-        onClick={(e) => {
-          stop(e);
-          onClose();
-        }}
-        className="absolute right-4 top-4 z-10 rounded-lg border border-white/20 bg-black/40 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-black/70"
-      >
-        Fermer ✕
-      </button>
+      <div className="absolute right-4 top-4 z-10 flex items-center gap-2">
+        {fsSupported && !isFs && (
+          <button
+            type="button"
+            aria-label="Plein écran"
+            title="Plein écran (F)"
+            onClick={(e) => {
+              stop(e);
+              goFullscreen();
+            }}
+            className="rounded-lg border border-white/20 bg-black/40 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-black/70"
+          >
+            Plein écran ⤢
+          </button>
+        )}
+        <button
+          type="button"
+          aria-label="Fermer"
+          autoFocus
+          onClick={(e) => {
+            stop(e);
+            handlers.current.onClose();
+          }}
+          className="rounded-lg border border-white/20 bg-black/40 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-black/70"
+        >
+          Fermer ✕
+        </button>
+      </div>
 
       {hasPrev && (
         <button
@@ -104,20 +267,15 @@ export function Lightbox({
           <img
             src={src}
             alt={file.original_name}
-            className="max-h-[92vh] max-w-[94vw] rounded object-contain"
+            className={`${mediaSize} rounded object-contain`}
           />
         ) : isVideo(file.mime, file.original_name) ? (
-          <video
-            controls
-            autoPlay
-            src={src}
-            className="max-h-[92vh] max-w-[94vw] rounded"
-          />
+          <video controls autoPlay src={src} className={`${mediaSize} rounded`} />
         ) : isPdf(file.mime, file.original_name) ? (
           <iframe
             title={file.original_name}
             src={src}
-            className="h-[92vh] w-[94vw] rounded border-0 bg-white"
+            className={`${frameSize} rounded border-0 bg-white`}
           />
         ) : isAudio(file.mime, file.original_name) ? (
           <div className="flex w-[90vw] max-w-xl flex-col items-center gap-5">

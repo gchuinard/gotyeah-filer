@@ -60,7 +60,9 @@
 - [x] UI **master-détail** : aside (liste défilante) + aperçu au centre, admin & page invité.
 - [x] **Aperçu/lecture inline** : audio (mp3/wav…), vidéo (mp4/webm…), **PDF** ; Content-Type
       déduit de l'extension + requêtes **Range** (seek) ; `inline` réservé aux types sûrs.
-- [x] **Plein écran** (lightbox) : Entrée/Espace ou clic, navigation flèches dedans.
+- [x] **Mode projection** (lightbox) : **plein écran immersif réel** (Fullscreen API +
+      repli webkit Safari/iPad ; dégradation gracieuse en overlay sur iPhone). Entrée/Espace
+      ou clic pour ouvrir, flèches pour défiler, Échap pour sortir. **Admin & invité.**
 - [x] **Multi-sélection** (clic, shift-clic) + actions groupées (déplacer / supprimer / zip).
 - [x] **Filtre par type**, **recherche** par nom, **tri** (nom / date / taille).
 - [x] **Navigation clavier** : ↑/↓ fichiers, ←/→ dossiers, Entrée/Espace plein écran.
