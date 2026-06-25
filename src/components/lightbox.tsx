@@ -78,7 +78,7 @@ function FadeImage({
       src={src}
       alt={alt}
       onLoad={() => setLoaded(true)}
-      className={`${className} transition-opacity duration-500 ${loaded ? "opacity-100" : "opacity-0"}`}
+      className={`${className} transition-opacity duration-1000 ease-in-out ${loaded ? "opacity-100" : "opacity-0"}`}
     />
   );
 }
