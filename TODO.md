@@ -75,3 +75,9 @@
       **copie** retouchée (canvas + boucle pixel = même rendu que l'aperçu) comme **nouveau
       fichier** dans le dossier choisi, en **JPEG ou PNG** (défaut selon l'image d'entrée),
       via `/api/upload`. L'original n'est **jamais** modifié.
+- [x] **Mode projection hors-ligne** (spectacle) : bouton **« Préparer »** qui précharge les
+      images de la vue courante en **blobs (RAM navigateur)** — pool à concurrence limitée +
+      **retry** sur échec réseau, dans l'ordre de la liste. Une fois prêt, l'aperçu central et
+      la lightbox lisent depuis le cache → **navigation image→image sans réseau** (plus de 404
+      si la connexion hoquette en plein spectacle). Object URLs **révoqués** au cleanup ;
+      stockage volatile (perdu au reload). Partagé **admin & invité**. Images uniquement.

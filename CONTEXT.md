@@ -34,6 +34,7 @@ La « connexion » est une **simple porte**, PAS une vraie authentification, et 
 - **Fichiers** : stockés sur le système de fichiers (volume Docker monté sur `/data` : `/data/files` pour les fichiers, le `.db` sous `/data`).
 - **Uploads volumineux** : via Route Handler en streaming (PAS de Server Action, à cause de la limite ~1 Mo).
 - **Aperçu plein écran (« mode projection »)** : Fullscreen API (sans chrome, fondu entre images), partagé admin & invité.
+- **Projection hors-ligne (spectacle)** : préchargement des images de la vue en blobs (RAM navigateur) → la navigation image→image ne dépend plus du réseau (pas de 404 si la connexion hoquette). Stockage volatile (perdu au reload), pas de service worker. Partagé admin & invité.
 - **Retouche d'image (admin)** : non-destructive, **côté navigateur** (aperçu via filtre SVG, export `<canvas>`) → enregistre une **copie** (nouveau fichier) via l'upload existant ; l'original reste intact, aucun traitement serveur.
 - **Déploiement** : image Docker multi-stage (output standalone), exposée via Nginx Proxy Manager, Cloudflare Full (Strict).
 
