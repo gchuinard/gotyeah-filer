@@ -33,6 +33,8 @@ La « connexion » est une **simple porte**, PAS une vraie authentification, et 
 - **Persistance** : better-sqlite3 (un seul fichier `.db`, schéma créé au boot, pas de Prisma ni migrations).
 - **Fichiers** : stockés sur le système de fichiers (volume Docker monté sur `/data` : `/data/files` pour les fichiers, le `.db` sous `/data`).
 - **Uploads volumineux** : via Route Handler en streaming (PAS de Server Action, à cause de la limite ~1 Mo).
+- **Aperçu plein écran (« mode projection »)** : Fullscreen API (sans chrome, fondu entre images), partagé admin & invité.
+- **Retouche d'image (admin)** : non-destructive, **côté navigateur** (aperçu via filtre SVG, export `<canvas>`) → enregistre une **copie** (nouveau fichier) via l'upload existant ; l'original reste intact, aucun traitement serveur.
 - **Déploiement** : image Docker multi-stage (output standalone), exposée via Nginx Proxy Manager, Cloudflare Full (Strict).
 
 > **Attention** : le proxy Cloudflare limite le body à 100 Mo (plans Free/Pro). Pour dépasser 100 Mo, passer le sous-domaine en DNS-only (grey cloud) ou prévoir un upload chunké.

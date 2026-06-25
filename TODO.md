@@ -61,8 +61,10 @@
 - [x] **Aperçu/lecture inline** : audio (mp3/wav…), vidéo (mp4/webm…), **PDF** ; Content-Type
       déduit de l'extension + requêtes **Range** (seek) ; `inline` réservé aux types sûrs.
 - [x] **Mode projection** (lightbox) : **plein écran immersif réel** (Fullscreen API +
-      repli webkit Safari/iPad ; dégradation gracieuse en overlay sur iPhone). Entrée/Espace
-      ou clic pour ouvrir, flèches pour défiler, Échap pour sortir. **Admin & invité.**
+      repli webkit Safari/iPad ; dégradation gracieuse en overlay sur iPhone). En plein écran,
+      **aucun chrome** par-dessus l'image (flèches/bouton masqués) → navigation au **clavier**
+      (←/→), Échap pour sortir. **Fondu d'apparition** des images (~1 s, ease-in-out).
+      Entrée/Espace ou clic pour ouvrir. **Admin & invité.**
 - [x] **Multi-sélection** (clic, shift-clic) + actions groupées (déplacer / supprimer / zip).
 - [x] **Filtre par type**, **recherche** par nom, **tri** (nom / date / taille).
 - [x] **Navigation clavier** : ↑/↓ fichiers, ←/→ dossiers, Entrée/Espace plein écran.

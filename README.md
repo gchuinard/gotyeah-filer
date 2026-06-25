@@ -17,8 +17,8 @@ range dans des dossiers, puis on les partage à des proches via un lien `/s/{tok
   dans un dossier — l'original reste intact.
 - **Explorateur** (admin & page invité) : vue **master‑détail** (liste à gauche, aperçu en
   grand au centre) avec **aperçu** des images, **lecture** audio/vidéo (seek via requêtes
-  Range) et **PDF** en ligne, **mode projection** plein écran immersif (Fullscreen API ;
-  Entrée/Espace ou clic, Échap pour sortir), **filtre par type**
+  Range) et **PDF** en ligne, **mode projection** plein écran immersif (Fullscreen API, **sans
+  chrome** ; flèches pour défiler, Échap pour sortir, **fondu** entre les images), **filtre par type**
   (images / audio / vidéo / fichiers), **recherche** par nom, **tri** (nom / date / taille),
   **multi‑sélection** (clic, shift‑clic) → actions groupées (déplacer / supprimer / télécharger
   en **.zip**), et **navigation au clavier** (↑/↓ fichiers, ←/→ dossiers, Entrée/Espace plein écran).
