@@ -68,3 +68,8 @@
 - [x] **Navigation clavier** : ↑/↓ fichiers, ←/→ dossiers, Entrée/Espace plein écran.
 - [x] **Modale de confirmation** stylée (remplace `window.confirm`) ; **modale de partage**
       (e-mails en chips : ajouter/supprimer, pas d'édition).
+- [x] **Retouche d'image** (admin) : réglages non-destructifs **luminosité / contraste /
+      saturation / RVB** (aperçu live via filtre SVG) ; **« Enregistrer sous »** exporte une
+      **copie** retouchée (canvas + boucle pixel = même rendu que l'aperçu) comme **nouveau
+      fichier** dans le dossier choisi, en **JPEG ou PNG** (défaut selon l'image d'entrée),
+      via `/api/upload`. L'original n'est **jamais** modifié.

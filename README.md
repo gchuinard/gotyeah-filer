@@ -12,7 +12,9 @@ range dans des dossiers, puis on les partage à des proches via un lien `/s/{tok
 - **Admin** (emails listés dans `ADMIN_EMAILS`) : upload (drag & drop, **streaming**, gros
   fichiers OK), **dossiers** pour ranger, création de **partages** d'un fichier **ou d'un
   dossier entier** (emails autorisés → lien + « copier »), révocation, suppression, download,
-  **compteur de téléchargements** par fichier.
+  **compteur de téléchargements** par fichier, **retouche d'image** (luminosité / contraste /
+  saturation / RVB) avec **« Enregistrer sous »** une **copie non-destructive** (PNG ou JPEG)
+  dans un dossier — l'original reste intact.
 - **Explorateur** (admin & page invité) : vue **master‑détail** (liste à gauche, aperçu en
   grand au centre) avec **aperçu** des images, **lecture** audio/vidéo (seek via requêtes
   Range) et **PDF** en ligne, **mode projection** plein écran immersif (Fullscreen API ;

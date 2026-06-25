@@ -18,6 +18,7 @@ import { FilterChips } from "@/components/filter-chips";
 import { SortControl } from "@/components/sort-control";
 import { useConfirm } from "@/components/confirm-dialog";
 import { Lightbox } from "@/components/lightbox";
+import { ImageEditor } from "@/components/image-editor";
 import { DeleteButton } from "@/app/admin/delete-button";
 import { MoveSelect } from "@/app/admin/move-select";
 import { type Share } from "@/app/admin/share-manager";
@@ -84,6 +85,7 @@ export function FileBrowser({
   } | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [lightbox, setLightbox] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [filter, setFilter] = useState<MediaFilter>("all");
   const [query, setQuery] = useState("");
   const [sortField, setSortField] = useState<SortField>("date");
@@ -126,6 +128,16 @@ export function FileBrowser({
   const lbIndex = selected
     ? visible.findIndex((f) => f.id === selected.id)
     : -1;
+
+  // Image matricielle retouchable (le SVG est exclu : non pixellisable proprement).
+  const canEdit =
+    !!selected?.mime?.startsWith("image/") &&
+    selected.mime !== "image/svg+xml" &&
+    !selected.original_name.toLowerCase().endsWith(".svg");
+
+  // Mode retouche lié au fichier courant : changer de sélection le quitte
+  // naturellement (état dérivé, sans effet).
+  const editing = !!selected && editingId === selected.id;
 
   // Changer la vue (filtre/recherche) réinitialise la sélection (évite des
   // coches « cachées » qui seraient incluses dans une action groupée).
@@ -384,34 +396,57 @@ export function FileBrowser({
                   · ↓ {selected.download_count}
                 </p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <a
-                  href={`/api/files/${selected.id}`}
-                  className="rounded-lg bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 transition-colors hover:bg-white"
-                >
-                  Télécharger
-                </a>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setShareTarget({
-                      id: selected.id,
-                      name: selected.original_name,
-                    })
-                  }
-                  className="rounded-lg border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-900"
-                >
-                  Partager
-                </button>
-                <MoveSelect
-                  key={selected.id}
-                  fileId={selected.id}
-                  folders={folders}
-                  current={selected.folder_id}
-                />
-                <DeleteButton id={selected.id} name={selected.original_name} />
-              </div>
+              {!editing && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <a
+                    href={`/api/files/${selected.id}`}
+                    className="rounded-lg bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 transition-colors hover:bg-white"
+                  >
+                    Télécharger
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setShareTarget({
+                        id: selected.id,
+                        name: selected.original_name,
+                      })
+                    }
+                    className="rounded-lg border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-900"
+                  >
+                    Partager
+                  </button>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => setEditingId(selected.id)}
+                      className="rounded-lg border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-900"
+                    >
+                      Retoucher
+                    </button>
+                  )}
+                  <MoveSelect
+                    key={selected.id}
+                    fileId={selected.id}
+                    folders={folders}
+                    current={selected.folder_id}
+                  />
+                  <DeleteButton id={selected.id} name={selected.original_name} />
+                </div>
+              )}
             </div>
+            {editing && canEdit ? (
+              <ImageEditor
+                key={selected.id}
+                file={selected}
+                folders={folders}
+                onDone={() => setEditingId(null)}
+                onSaved={(id) => {
+                  setEditingId(null);
+                  setSelectedId(id);
+                }}
+              />
+            ) : (
             <div className="flex min-h-[20rem] items-center justify-center overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 p-2">
               {selected.mime?.startsWith("image/") ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -452,6 +487,7 @@ export function FileBrowser({
                 </div>
               )}
             </div>
+            )}
           </div>
         )}
       </section>
