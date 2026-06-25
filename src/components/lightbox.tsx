@@ -202,36 +202,41 @@ export function Lightbox({
       aria-label={file.original_name}
       onClick={() => handlers.current.onClose()}
     >
-      <div className="absolute right-4 top-4 z-10 flex items-center gap-2">
-        {fsSupported && !isFs && (
+      {/* En vrai plein écran (projection) : aucun chrome par-dessus l'image.
+          Navigation au clavier (flèches) + Échap pour sortir. Hors plein écran
+          réel (overlay de repli), on garde les contrôles à l'écran. */}
+      {!isFs && (
+        <div className="absolute right-4 top-4 z-10 flex items-center gap-2">
+          {fsSupported && (
+            <button
+              type="button"
+              aria-label="Plein écran"
+              title="Plein écran (F)"
+              onClick={(e) => {
+                stop(e);
+                goFullscreen();
+              }}
+              className="rounded-lg border border-white/20 bg-black/40 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-black/70"
+            >
+              Plein écran ⤢
+            </button>
+          )}
           <button
             type="button"
-            aria-label="Plein écran"
-            title="Plein écran (F)"
+            aria-label="Fermer"
+            autoFocus
             onClick={(e) => {
               stop(e);
-              goFullscreen();
+              handlers.current.onClose();
             }}
             className="rounded-lg border border-white/20 bg-black/40 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-black/70"
           >
-            Plein écran ⤢
+            Fermer ✕
           </button>
-        )}
-        <button
-          type="button"
-          aria-label="Fermer"
-          autoFocus
-          onClick={(e) => {
-            stop(e);
-            handlers.current.onClose();
-          }}
-          className="rounded-lg border border-white/20 bg-black/40 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-black/70"
-        >
-          Fermer ✕
-        </button>
-      </div>
+        </div>
+      )}
 
-      {hasPrev && (
+      {hasPrev && !isFs && (
         <button
           type="button"
           aria-label="Précédent"
@@ -244,7 +249,7 @@ export function Lightbox({
           ‹
         </button>
       )}
-      {hasNext && (
+      {hasNext && !isFs && (
         <button
           type="button"
           aria-label="Suivant"
