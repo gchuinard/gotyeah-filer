@@ -87,6 +87,7 @@
       curseur masqué) via **`BroadcastChannel`** (position synchronisée dans les deux sens).
       Placement **auto** sur le 2e écran (Multi-Screen Window Placement API, Chrome/Edge),
       sinon popup à glisser + plein écran. La fenêtre public **précharge ses propres blobs**
-      (les object URLs ne traversent pas les fenêtres). Notes en `localStorage` (aucune base).
+      (les object URLs ne traversent pas les fenêtres). Notes **par fichier en base**
+      (colonne `files.note`, éditables en présentateur ET dans l'explorateur ; pas sur l'écran public).
       Réalisé en phases : A (régie + fenêtre synchronisées), B (notes + chrono), D (finitions
       + docs). **Phase C (parité invité) volontairement non faite.**
