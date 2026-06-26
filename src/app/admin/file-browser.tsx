@@ -19,6 +19,7 @@ import { SortControl } from "@/components/sort-control";
 import { useConfirm } from "@/components/confirm-dialog";
 import { Lightbox } from "@/components/lightbox";
 import { ProjectionPrep } from "@/components/projection-prep";
+import { ProjectionRegie } from "@/components/projection-regie";
 import { useImagePreload } from "@/lib/use-image-preload";
 import { ImageEditor } from "@/components/image-editor";
 import { DeleteButton } from "@/app/admin/delete-button";
@@ -88,6 +89,7 @@ export function FileBrowser({
   const [bulkBusy, setBulkBusy] = useState(false);
   const [lightbox, setLightbox] = useState(false);
   const [offline, setOffline] = useState(false);
+  const [presenter, setPresenter] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [filter, setFilter] = useState<MediaFilter>("all");
   const [query, setQuery] = useState("");
@@ -264,6 +266,15 @@ export function FileBrowser({
               onToggle={setOffline}
               state={preload}
             />
+            {imageCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setPresenter(true)}
+                className="mb-3 w-full rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-200 transition-colors hover:bg-zinc-900"
+              >
+                Mode présentateur (2 écrans)
+              </button>
+            )}
             <div className="mb-2 flex items-center justify-between gap-2">
           <label className="flex items-center gap-2 text-xs font-medium text-zinc-500">
             <input
@@ -529,6 +540,22 @@ export function FileBrowser({
           onNext={() => lightboxStep(1)}
           onClose={() => setLightbox(false)}
           srcMap={preload.urls}
+        />
+      )}
+
+      {presenter && (
+        <ProjectionRegie
+          files={visible.map((f) => ({
+            id: f.id,
+            original_name: f.original_name,
+            mime: f.mime,
+          }))}
+          index={lbIndex >= 0 ? lbIndex : 0}
+          onIndex={(i) => {
+            const f = visible[i];
+            if (f) setSelectedId(f.id);
+          }}
+          onClose={() => setPresenter(false)}
         />
       )}
     </div>

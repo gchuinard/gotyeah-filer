@@ -8,6 +8,8 @@ import {
   useState,
 } from "react";
 import { isAudio, isPdf, isVideo } from "@/lib/media";
+import { fsActive, fsEnabled, enterFs, exitFs } from "@/lib/fullscreen";
+import { FadeImage } from "@/components/fade-image";
 
 type LightboxFile = {
   id: string;
@@ -15,73 +17,9 @@ type LightboxFile = {
   mime: string | null;
 };
 
-/* ---- Fullscreen API (avec repli webkit pour Safari/iPad) -------------------
- * iOS Safari (iPhone) ne sait pas mettre un <div> en plein écran : les helpers
- * renvoient alors « non supporté » et la lightbox reste un simple overlay noir
- * (dégradation gracieuse). Sur desktop / Android, on passe en VRAI plein écran
- * immersif (hors du cadre du navigateur) — c'est le « mode projection ». */
-type FsElement = HTMLElement & {
-  webkitRequestFullscreen?: () => Promise<void> | void;
-};
-type FsDocument = Document & {
-  webkitFullscreenElement?: Element | null;
-  webkitExitFullscreen?: () => Promise<void> | void;
-  webkitFullscreenEnabled?: boolean;
-};
-
-const fsDoc = () => document as FsDocument;
-
-function fsActive(): boolean {
-  return !!(document.fullscreenElement || fsDoc().webkitFullscreenElement);
-}
-function fsEnabled(): boolean {
-  return !!(document.fullscreenEnabled || fsDoc().webkitFullscreenEnabled);
-}
-function enterFs(el: HTMLElement): Promise<void> {
-  const fn =
-    el.requestFullscreen?.bind(el) ??
-    (el as FsElement).webkitRequestFullscreen?.bind(el);
-  if (!fn) return Promise.resolve();
-  try {
-    return Promise.resolve(fn()).catch(() => {});
-  } catch {
-    return Promise.resolve();
-  }
-}
-function exitFs(): Promise<void> {
-  if (!fsActive()) return Promise.resolve();
-  const fn =
-    document.exitFullscreen?.bind(document) ??
-    fsDoc().webkitExitFullscreen?.bind(document);
-  if (!fn) return Promise.resolve();
-  try {
-    return Promise.resolve(fn()).catch(() => {});
-  } catch {
-    return Promise.resolve();
-  }
-}
-
-/** Image qui apparaît en fondu une fois chargée (transition de projection). */
-function FadeImage({
-  src,
-  alt,
-  className,
-}: {
-  src: string;
-  alt: string;
-  className: string;
-}) {
-  const [loaded, setLoaded] = useState(false);
-  return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={src}
-      alt={alt}
-      onLoad={() => setLoaded(true)}
-      className={`${className} transition-opacity duration-1000 ease-in-out ${loaded ? "opacity-100" : "opacity-0"}`}
-    />
-  );
-}
+/* Le plein écran (Fullscreen API + repli webkit Safari/iPad) et `FadeImage`
+ * sont mutualisés — cf. `@/lib/fullscreen` et `@/components/fade-image` — et
+ * réutilisés par la fenêtre publique du mode présentateur (`/admin/projection`). */
 
 /**
  * Aperçu plein écran d'un fichier (« mode projection »). À l'ouverture, on tente
