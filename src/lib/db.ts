@@ -84,6 +84,9 @@ function createDb(): Database.Database {
   // Compteur de téléchargements (ajouté après coup) : idempotent, défaut 0.
   ensureColumn(db, "files", "download_count", "INTEGER NOT NULL DEFAULT 0");
 
+  // Note libre par fichier (ajoutée après coup) : idempotente, NULL par défaut.
+  ensureColumn(db, "files", "note", "TEXT");
+
   // Partage de dossier (ajouté après coup) : la table `shares` historique a
   // `file_id NOT NULL` et pas de `folder_id`. SQLite ne sait pas relâcher un
   // NOT NULL par ALTER → on reconstruit la table (idempotent, legacy only).

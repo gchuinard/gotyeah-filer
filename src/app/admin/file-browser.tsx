@@ -21,6 +21,7 @@ import { Lightbox } from "@/components/lightbox";
 import { ProjectionPrep } from "@/components/projection-prep";
 import { ProjectionRegie } from "@/components/projection-regie";
 import { useImagePreload } from "@/lib/use-image-preload";
+import { useFileNotes } from "@/lib/use-file-notes";
 import { ImageEditor } from "@/components/image-editor";
 import { DeleteButton } from "@/app/admin/delete-button";
 import { MoveSelect } from "@/app/admin/move-select";
@@ -35,6 +36,7 @@ export type FileItem = {
   created_at: number;
   folder_id: string | null;
   download_count: number;
+  note: string | null;
 };
 
 type Option = { id: string; name: string };
@@ -133,9 +135,14 @@ export function FileBrowser({
   const lbIndex = selected
     ? visible.findIndex((f) => f.id === selected.id)
     : -1;
+  // Image de départ / courante du mode présentateur (jamais hors bornes).
+  const presenterIndex = lbIndex >= 0 ? lbIndex : 0;
+  const presenterFile = visible[presenterIndex] ?? null;
 
   // Préchargement « projection hors-ligne » des images de la vue courante.
   const preload = useImagePreload(visible, offline);
+  // Notes par fichier persistées en base (édition optimiste + debounce).
+  const { noteOf, setNote } = useFileNotes(files);
   const imageCount = visible.filter((f) =>
     f.mime?.startsWith("image/"),
   ).length;
@@ -463,6 +470,23 @@ export function FileBrowser({
                 </div>
               )}
             </div>
+            {!editing && (
+              <div>
+                <label
+                  htmlFor="file-note"
+                  className="mb-1.5 block text-xs font-medium text-zinc-500"
+                >
+                  Note
+                </label>
+                <textarea
+                  id="file-note"
+                  value={noteOf(selected.id)}
+                  onChange={(e) => setNote(selected.id, e.target.value)}
+                  placeholder="Note libre liée à ce fichier (visible aussi en mode présentateur)…"
+                  className="h-24 w-full resize-y rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-500"
+                />
+              </div>
+            )}
             {editing && canEdit ? (
               <ImageEditor
                 key={selected.id}
@@ -550,10 +574,14 @@ export function FileBrowser({
             original_name: f.original_name,
             mime: f.mime,
           }))}
-          index={lbIndex >= 0 ? lbIndex : 0}
+          index={presenterIndex}
           onIndex={(i) => {
             const f = visible[i];
             if (f) setSelectedId(f.id);
+          }}
+          note={presenterFile ? noteOf(presenterFile.id) : ""}
+          onNote={(v) => {
+            if (presenterFile) setNote(presenterFile.id, v);
           }}
           onClose={() => setPresenter(false)}
         />

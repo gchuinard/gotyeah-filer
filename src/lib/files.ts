@@ -14,6 +14,8 @@ export type FileRow = {
   folder_id: string | null;
   /** Nombre de téléchargements (les aperçus inline ne comptent pas). */
   download_count: number;
+  /** Note libre liée au fichier (admin), ou null. */
+  note: string | null;
 };
 
 /** Répertoire physique des fichiers stockés. */
@@ -49,8 +51,8 @@ export function getFile(id: string): FileRow | undefined {
     | undefined;
 }
 
-/** Enregistre un fichier en base (download_count démarre à 0 via le défaut SQL). */
-export function insertFile(row: Omit<FileRow, "download_count">): void {
+/** Enregistre un fichier en base (download_count à 0 et note NULL via défaut SQL). */
+export function insertFile(row: Omit<FileRow, "download_count" | "note">): void {
   getDb()
     .prepare(
       `INSERT INTO files (id, stored_name, original_name, size, mime, created_at, folder_id)
@@ -66,6 +68,16 @@ export function incrementDownloadCount(id: string): void {
       "UPDATE files SET download_count = COALESCE(download_count, 0) + 1 WHERE id = ?",
     )
     .run(id);
+}
+
+/** Met à jour la note libre d'un fichier (null/vide → efface ; capée à 10 k). */
+export function setFileNote(id: string, note: string | null): boolean {
+  const value = note && note.trim() !== "" ? note.slice(0, 10000) : null;
+  return (
+    getDb()
+      .prepare("UPDATE files SET note = ? WHERE id = ?")
+      .run(value, id).changes > 0
+  );
 }
 
 /** Déplace un fichier dans un dossier (ou à la racine si null). */

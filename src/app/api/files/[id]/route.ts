@@ -9,6 +9,7 @@ import {
   getFile,
   incrementDownloadCount,
   moveFile,
+  setFileNote,
   storedFilePath,
 } from "@/lib/files";
 import { getFolder } from "@/lib/folders";
@@ -131,7 +132,12 @@ export async function DELETE(
   return new Response(null, { status: 204 });
 }
 
-/** Déplace un fichier dans un dossier (admin) : corps JSON { folderId: string|null }. */
+/**
+ * Met à jour un fichier (admin). Corps JSON, chaque clé est optionnelle et
+ * traitée seulement si PRÉSENTE : `{ folderId: string|null }` déplace,
+ * `{ note: string|null }` met à jour la note libre. (Ne pas déplacer à la racine
+ * quand on ne met à jour que la note.)
+ */
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -150,16 +156,28 @@ export async function PATCH(
   } catch {
     return Response.json({ error: "JSON invalide." }, { status: 400 });
   }
+  const data = (body ?? {}) as { folderId?: unknown; note?: unknown };
 
-  const raw = (body as { folderId?: unknown })?.folderId;
-  let folderId: string | null = null;
-  if (raw != null && raw !== "") {
-    folderId = String(raw);
-    if (!getFolder(folderId)) {
-      return Response.json({ error: "Dossier introuvable." }, { status: 400 });
+  // Note libre (uniquement si la clé est présente dans le corps).
+  if ("note" in data) {
+    if (data.note !== null && typeof data.note !== "string") {
+      return Response.json({ error: "Note invalide." }, { status: 400 });
     }
+    setFileNote(id, data.note ?? null);
   }
 
-  moveFile(id, folderId);
+  // Déplacement (uniquement si la clé est présente).
+  if ("folderId" in data) {
+    const raw = data.folderId;
+    let folderId: string | null = null;
+    if (raw != null && raw !== "") {
+      folderId = String(raw);
+      if (!getFolder(folderId)) {
+        return Response.json({ error: "Dossier introuvable." }, { status: 400 });
+      }
+    }
+    moveFile(id, folderId);
+  }
+
   return new Response(null, { status: 204 });
 }

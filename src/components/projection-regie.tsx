@@ -6,7 +6,6 @@ import {
   type ProjectionMessage,
   type PublicFile,
 } from "@/lib/projection-channel";
-import { useLocalNotes } from "@/lib/use-local-notes";
 import { PresenterTimer } from "@/components/presenter-timer";
 
 type Progress = { ready: number; total: number; failed: number };
@@ -29,11 +28,16 @@ export function ProjectionRegie({
   files,
   index,
   onIndex,
+  note,
+  onNote,
   onClose,
 }: {
   files: PublicFile[];
   index: number;
   onIndex: (index: number) => void;
+  /** Note (en base) de l'image courante, et son éditeur (cf. `useFileNotes`). */
+  note: string;
+  onNote: (value: string) => void;
   onClose: () => void;
 }) {
   const [publicOpen, setPublicOpen] = useState(false);
@@ -65,9 +69,6 @@ export function ProjectionRegie({
   const max = files.length - 1;
   const current = files[index] ?? null;
   const next = index < max ? files[index + 1] : null;
-
-  // Bloc-notes local (localStorage) de l'image courante.
-  const [note, setNote] = useLocalNotes(current?.id ?? null);
 
   // — Canal : écoute + teardown (referme la fenêtre public à la sortie) —
   useEffect(() => {
@@ -347,12 +348,10 @@ export function ProjectionRegie({
             <p className="mb-2 text-xs font-medium text-zinc-500">Notes</p>
             <textarea
               value={note}
-              onChange={(e) => setNote(e.target.value)}
+              onChange={(e) => onNote(e.target.value)}
               disabled={!current}
               placeholder={
-                current
-                  ? "Notes pour cette image (locales à ce navigateur)…"
-                  : "—"
+                current ? "Notes pour cette image (enregistrées)…" : "—"
               }
               className="h-28 w-full resize-none rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-500 disabled:opacity-50"
             />

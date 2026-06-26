@@ -91,6 +91,7 @@ export default async function AdminPage({
     created_at: f.created_at,
     folder_id: f.folder_id,
     download_count: f.download_count,
+    note: f.note,
   }));
 
   return (
