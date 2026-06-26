@@ -81,3 +81,12 @@
       la lightbox lisent depuis le cache → **navigation image→image sans réseau** (plus de 404
       si la connexion hoquette en plein spectacle). Object URLs **révoqués** au cleanup ;
       stockage volatile (perdu au reload). Partagé **admin & invité**. Images uniquement.
+- [x] **Mode présentateur** (2 écrans, **admin**) façon PowerPoint : console **régie**
+      (image courante + **suivante** + **notes** locales par image + **chrono** total/par-image,
+      pause/reset) pilotant une **fenêtre public** plein écran (l'image seule, sans chrome,
+      curseur masqué) via **`BroadcastChannel`** (position synchronisée dans les deux sens).
+      Placement **auto** sur le 2e écran (Multi-Screen Window Placement API, Chrome/Edge),
+      sinon popup à glisser + plein écran. La fenêtre public **précharge ses propres blobs**
+      (les object URLs ne traversent pas les fenêtres). Notes en `localStorage` (aucune base).
+      Réalisé en phases : A (régie + fenêtre synchronisées), B (notes + chrono), D (finitions
+      + docs). **Phase C (parité invité) volontairement non faite.**

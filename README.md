@@ -14,7 +14,10 @@ range dans des dossiers, puis on les partage à des proches via un lien `/s/{tok
   dossier entier** (emails autorisés → lien + « copier »), révocation, suppression, download,
   **compteur de téléchargements** par fichier, **retouche d'image** (luminosité / contraste /
   saturation / RVB) avec **« Enregistrer sous »** une **copie non-destructive** (PNG ou JPEG)
-  dans un dossier — l'original reste intact.
+  dans un dossier — l'original reste intact. Et un **mode présentateur (2 écrans)** façon
+  PowerPoint : un écran **public** plein écran (l'image seule) piloté depuis une **régie** avec
+  l'image **suivante**, des **notes** (locales au navigateur) et un **chrono** — placement auto
+  du 2e écran sur Chrome/Edge, sinon fenêtre à glisser sur le vidéoprojecteur.
 - **Explorateur** (admin & page invité) : vue **master‑détail** (liste à gauche, aperçu en
   grand au centre) avec **aperçu** des images, **lecture** audio/vidéo (seek via requêtes
   Range) et **PDF** en ligne, **mode projection** plein écran immersif (Fullscreen API, **sans
