@@ -176,7 +176,7 @@ export function ProjectionScreen() {
   return (
     <div
       ref={rootRef}
-      className="fixed inset-0 z-0 flex h-screen w-screen items-center justify-center overflow-hidden bg-black"
+      className={`fixed inset-0 z-0 flex h-screen w-screen items-center justify-center overflow-hidden bg-black ${isFs ? "cursor-none" : ""}`}
     >
       {current ? (
         current.mime?.startsWith("image/") ? (

@@ -402,6 +402,9 @@ export function ProjectionRegie({
               Suivant ›
             </button>
           </div>
+          <p className="text-center text-[11px] text-zinc-600">
+            ←/→ naviguer · Échap quitter
+          </p>
         </div>
       </div>
     </div>
