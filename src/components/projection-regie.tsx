@@ -6,6 +6,8 @@ import {
   type ProjectionMessage,
   type PublicFile,
 } from "@/lib/projection-channel";
+import { useLocalNotes } from "@/lib/use-local-notes";
+import { PresenterTimer } from "@/components/presenter-timer";
 
 type Progress = { ready: number; total: number; failed: number };
 
@@ -63,6 +65,9 @@ export function ProjectionRegie({
   const max = files.length - 1;
   const current = files[index] ?? null;
   const next = index < max ? files[index + 1] : null;
+
+  // Bloc-notes local (localStorage) de l'image courante.
+  const [note, setNote] = useLocalNotes(current?.id ?? null);
 
   // — Canal : écoute + teardown (referme la fenêtre public à la sortie) —
   useEffect(() => {
@@ -154,9 +159,19 @@ export function ProjectionRegie({
     if (ni !== cur) onIndexRef.current(ni);
   }, []);
 
-  // Clavier : ←/→ navigue, Échap quitte le mode présentateur.
+  // Clavier : ←/→ navigue, Échap quitte le mode présentateur. Inactif pendant
+  // la saisie des notes (sinon les flèches déplaceraient le curseur ET l'image).
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      const el = e.target as HTMLElement | null;
+      if (
+        el &&
+        (el.tagName === "TEXTAREA" ||
+          el.tagName === "INPUT" ||
+          el.isContentEditable)
+      ) {
+        return;
+      }
       if (e.key === "ArrowRight" || e.key === "ArrowDown") {
         e.preventDefault();
         go(1);
@@ -269,7 +284,8 @@ export function ProjectionRegie({
         </div>
 
         {/* Colonne régie */}
-        <div className="flex w-full shrink-0 flex-col gap-4 lg:w-80">
+        <div className="flex min-h-0 w-full shrink-0 flex-col gap-4 lg:w-80">
+          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
           <div className="rounded-xl border border-zinc-800 p-3">
             {!publicOpen ? (
               <>
@@ -318,6 +334,25 @@ export function ProjectionRegie({
             )}
           </div>
 
+          {/* Chrono */}
+          <PresenterTimer index={index} />
+
+          {/* Notes — bloc-notes local (par image, sur ce navigateur) */}
+          <div className="rounded-xl border border-zinc-800 p-3">
+            <p className="mb-2 text-xs font-medium text-zinc-500">Notes</p>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              disabled={!current}
+              placeholder={
+                current
+                  ? "Notes pour cette image (locales à ce navigateur)…"
+                  : "—"
+              }
+              className="h-28 w-full resize-none rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-500 disabled:opacity-50"
+            />
+          </div>
+
           {/* Image suivante */}
           <div className="rounded-xl border border-zinc-800 p-3">
             <p className="mb-2 text-xs font-medium text-zinc-500">Suivante</p>
@@ -343,9 +378,10 @@ export function ProjectionRegie({
               <p className="text-sm text-zinc-600">— fin —</p>
             )}
           </div>
+          </div>
 
-          {/* Navigation */}
-          <div className="mt-auto flex items-center justify-between gap-2">
+          {/* Navigation (toujours visible) */}
+          <div className="flex items-center justify-between gap-2">
             <button
               type="button"
               onClick={() => go(-1)}
