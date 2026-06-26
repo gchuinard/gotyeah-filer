@@ -244,7 +244,12 @@ export function ProjectionRegie({
         : `Écran public ouvert · ${progress.ready} image${progress.ready > 1 ? "s" : ""} prête${progress.ready > 1 ? "s" : ""}`;
 
   return (
-    <div className="fixed inset-0 z-[70] flex flex-col bg-zinc-950 text-zinc-100">
+    <div
+      className="fixed inset-0 z-[70] flex flex-col bg-zinc-950 text-zinc-100"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Mode présentateur"
+    >
       <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3">
         <div className="min-w-0">
           <p className="text-sm font-semibold">Mode présentateur</p>
