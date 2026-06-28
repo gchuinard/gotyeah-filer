@@ -130,3 +130,9 @@
       `PUT`** (`renderAdjusted`/`overwriteMime` extraits dans `src/lib/render-adjusted.ts`,
       mutualisés) puis rafraîchit projecteur/régie/explorateur. Le tél ne fait que piloter (calcul
       lourd sur le laptop). Pas d'éditeur de retouche complet sur le tél.
+- [x] **Télécommande : repli polling (résilience reconnexion)**. Bug : le flux SSE entrant
+      du tél peut se figer (veille/bascule réseau) alors que les commandes (POST) passent →
+      affichage gelé (« suivante »/position/chrono). Fix : le relais **mémorise le dernier état**
+      par room (`getLastState`/`setLastState`), exposé par **`GET /api/projection/state`** ; le tél
+      le **poll (~2,5 s) tant que son SSE n'est pas `open`** (`applyState` factorisé) → l'affichage
+      se remet à jour même SSE coincé ; temps réel repris au retour du SSE.
