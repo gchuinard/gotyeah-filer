@@ -123,3 +123,10 @@
       **pilotable** (pause/reprise/reset). Chrono **sorti dans un hook** `src/lib/use-presenter-timer.ts`
       (horloges sans tick ; `PresenterTimer` présentationnel) ; la régie pousse un **instantané**
       que le téléphone **extrapole** (anti-décalage d'horloge), commande `timer`.
+- [x] **Télécommande : retouche live depuis le téléphone**. Sliders sur le tél (aperçu local) →
+      réglage diffusé en continu (throttlé ~120 ms, commande `adjust`) → la régie le **rediffuse**
+      au public → **aperçu projeté en temps réel** (réutilise le filtre live existant). « Écraser
+      l'original » (confirmé sur le tél, commande `retouch`) → **la régie fait le rendu canvas +
+      `PUT`** (`renderAdjusted`/`overwriteMime` extraits dans `src/lib/render-adjusted.ts`,
+      mutualisés) puis rafraîchit projecteur/régie/explorateur. Le tél ne fait que piloter (calcul
+      lourd sur le laptop). Pas d'éditeur de retouche complet sur le tél.
