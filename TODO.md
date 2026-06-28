@@ -99,3 +99,14 @@
          l'`ImageEditor` existant en modale (z-[80] > régie z-[70]) ; « Enregistrer sous… »
          crée une **copie** sans changer l'image projetée ; clavier régie neutralisé pendant
          l'édition (prop `paused`).
+- [x] **Retouche : aperçu live projeté + « Écraser l'original »** (suite des retours gala) :
+      1. **Aperçu LIVE en présentateur** : en bougeant les sliders, l'image **projetée** se met
+         à jour en temps réel (filtre SVG diffusé à la fenêtre publique via `BroadcastChannel`).
+         Math mutualisée dans `src/lib/image-adjust.ts` + `src/components/adjust-filter.tsx`.
+      2. **« Écraser l'original »** (en plus de « Enregistrer une copie ») : remplace
+         définitivement le fichier via **`PUT /api/files/[id]`** (streaming temp+rename ;
+         garde id/created_at/partages → l'image garde sa place). **Destructif**, donc derrière
+         une **confirmation `useConfirm`** (passée en `z-[90]` pour rester au-dessus de la régie).
+         Cache-bust (`reload`) pour rafraîchir projecteur/régie/explorateur (blobs préchargés figés).
+      3. Disponible **partout** (explorateur + présentateur). Exception **assumée** à la règle
+         « retouche non-destructive » : seul l'écrasement explicite et confirmé touche l'original.

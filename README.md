@@ -13,12 +13,13 @@ range dans des dossiers, puis on les partage à des proches via un lien `/s/{tok
   fichiers OK), **dossiers** pour ranger, création de **partages** d'un fichier **ou d'un
   dossier entier** (emails autorisés → lien + « copier »), révocation, suppression, download,
   **compteur de téléchargements** par fichier, **retouche d'image** (luminosité / contraste /
-  saturation / RVB) avec **« Enregistrer sous »** une **copie non-destructive** (PNG ou JPEG)
-  dans un dossier — l'original reste intact. Et un **mode présentateur (2 écrans)** façon
-  PowerPoint : un écran **public** plein écran (l'image seule) piloté depuis une **régie** avec
-  l'image **suivante**, des **notes** par fichier (enregistrées en base, éditables aussi dans
-  l'explorateur) et un **chrono** — placement auto du 2e écran sur Chrome/Edge, sinon fenêtre à
-  glisser sur le vidéoprojecteur.
+  saturation / RVB) : soit **« Enregistrer une copie »** (PNG ou JPEG, l'original reste intact),
+  soit **« Écraser l'original »** (remplace définitivement le fichier, **avec confirmation**). Et
+  un **mode présentateur (2 écrans)** façon PowerPoint : un écran **public** plein écran (l'image
+  seule) piloté depuis une **régie** avec l'image **suivante**, des **notes** par fichier
+  (enregistrées en base, éditables aussi dans l'explorateur), un **chrono**, et la **retouche en
+  direct** (le réglage s'affiche en temps réel sur le projecteur) — placement auto du 2e écran sur
+  Chrome/Edge, sinon fenêtre à glisser sur le vidéoprojecteur.
 - **Explorateur** (admin & page invité) : vue **master‑détail** (liste à gauche, aperçu en
   grand au centre) avec **aperçu** des images, **lecture** audio/vidéo (seek via requêtes
   Range) et **PDF** en ligne, **mode projection** plein écran immersif (Fullscreen API, **sans
