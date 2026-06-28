@@ -20,7 +20,9 @@ export async function GET(request: NextRequest) {
     return new Response("Code invalide", { status: 400 });
   }
   const json = getLastState(code);
-  return new Response(json ?? "", {
+  // Pas d'état mémorisé → 204 (pas de corps) plutôt qu'un corps vide annoncé JSON.
+  if (!json) return new Response(null, { status: 204 });
+  return new Response(json, {
     headers: {
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": "no-store",

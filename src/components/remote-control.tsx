@@ -5,6 +5,7 @@ import {
   type RemoteFile,
   type RemoteMsg,
   type RemoteState,
+  type RemoteTimer,
 } from "@/lib/remote-protocol";
 import { AdjustFilter } from "@/components/adjust-filter";
 import {
@@ -65,6 +66,9 @@ export function RemoteControl() {
   const latestAdjustRef = useRef<Adjust>(ZERO_ADJUST);
   // Filet de sécurité si la régie ne renvoie pas le résultat de l'écrasement.
   const commitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Dernier instantané chrono appliqué : ne ré-ancrer l'extrapolation que s'il
+  // change (sinon un poll répété d'un état périmé ferait sauter le chrono).
+  const timerSnapRef = useRef<RemoteTimer | null>(null);
 
   const send = useCallback((msg: RemoteMsg) => {
     fetch("/api/projection/cmd", {
@@ -80,9 +84,21 @@ export function RemoteControl() {
 
   // Applique un état reçu (par SSE ou par le repli polling).
   const applyState = useCallback((s: Partial<RemoteState>) => {
-    const t = Date.now();
-    setTimerRecvAt(t);
-    setNow(t);
+    const tmr = s.timer ?? { totalMs: 0, slideMs: 0, running: false };
+    // Ré-ancrer l'extrapolation du chrono UNIQUEMENT si l'instantané a changé :
+    // sinon un poll répété (état périmé) ferait reculer le chrono toutes les 2,5 s.
+    const prev = timerSnapRef.current;
+    const timerChanged =
+      !prev ||
+      prev.totalMs !== tmr.totalMs ||
+      prev.slideMs !== tmr.slideMs ||
+      prev.running !== tmr.running;
+    if (timerChanged) {
+      timerSnapRef.current = tmr;
+      const t = Date.now();
+      setTimerRecvAt(t);
+      setNow(t);
+    }
     setState({
       index: s.index ?? 0,
       total: s.total ?? 0,
@@ -90,7 +106,7 @@ export function RemoteControl() {
       next: s.next ?? null,
       black: !!s.black,
       note: s.note ?? "",
-      timer: s.timer ?? { totalMs: 0, slideMs: 0, running: false },
+      timer: tmr,
       editable: !!s.editable,
     });
   }, []);

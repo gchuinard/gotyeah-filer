@@ -20,9 +20,21 @@ function lastStates(): Map<string, string> {
   return (g.__projectionState ??= new Map<string, string>());
 }
 
-/** Mémorise le dernier état d'une room (poussé par la régie). */
+/** Borne le nombre de rooms mémorisées (anti-fuite si une room n'est jamais
+ * nettoyée, ex. état mémorisé sans abonné SSE). Largement suffisant : en pratique
+ * une seule room active à la fois. */
+const MAX_STATES = 50;
+
+/** Mémorise le dernier état d'une room (poussé par la régie). LRU : la room
+ * la plus récemment mise à jour reste, on évince la plus ancienne au-delà du cap. */
 export function setLastState(code: string, payloadJson: string): void {
-  lastStates().set(code, payloadJson);
+  const m = lastStates();
+  m.delete(code); // ré-insère en fin → ordre = ancienneté de dernière mise à jour
+  m.set(code, payloadJson);
+  if (m.size > MAX_STATES) {
+    const oldest = m.keys().next().value;
+    if (oldest !== undefined) m.delete(oldest);
+  }
 }
 /** Dernier état connu d'une room (ou null). */
 export function getLastState(code: string): string | null {
