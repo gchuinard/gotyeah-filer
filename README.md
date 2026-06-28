@@ -20,8 +20,9 @@ range dans des dossiers, puis on les partage à des proches via un lien `/s/{tok
   (enregistrées en base, éditables aussi dans l'explorateur), un **chrono**, et la **retouche en
   direct** (le réglage s'affiche en temps réel sur le projecteur) — placement auto du 2e écran sur
   Chrome/Edge, sinon fenêtre à glisser sur le vidéoprojecteur. Et une **télécommande** :
-  pilote la projection (◀ ▶, **écran noir**, vignette « suivante ») **depuis ton téléphone**
-  via un code d'appairage (page `/admin/remote`, relais SSE).
+  pilote la projection (◀ ▶, **écran noir**, vignette « suivante », **note** éditable de l'image,
+  **chrono** affiché et pilotable) **depuis ton téléphone** via un code d'appairage (page
+  `/admin/remote`, relais SSE).
 - **Explorateur** (admin & page invité) : vue **master‑détail** (liste à gauche, aperçu en
   grand au centre) avec **aperçu** des images, **lecture** audio/vidéo (seek via requêtes
   Range) et **PDF** en ligne, **mode projection** plein écran immersif (Fullscreen API, **sans

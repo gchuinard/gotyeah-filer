@@ -116,4 +116,10 @@
       protocole `src/lib/remote-protocol.ts`, relais `src/lib/projection-relay.ts`), **room** =
       code d'appairage 4 chiffres affiché par la régie ; page `/admin/remote`. Le téléphone pilote
       la régie, qui mène l'écran public (nouveau message `black` + touche **B**). En-têtes SSE
-      anti-buffering pour NPM/Cloudflare (repli polling possible si bufferisé).
+      anti-buffering pour NPM/Cloudflare (repli polling possible si bufferisé). **SSE validé en prod.**
+- [x] **Télécommande : notes + chrono** (mode présentateur de poche). Sur le téléphone :
+      **note** de l'image courante **éditable** (persistée en base via commande `note` →
+      `onNoteById` → `useFileNotes` ; optimiste + debounce + flush) et **chrono** affiché +
+      **pilotable** (pause/reprise/reset). Chrono **sorti dans un hook** `src/lib/use-presenter-timer.ts`
+      (horloges sans tick ; `PresenterTimer` présentationnel) ; la régie pousse un **instantané**
+      que le téléphone **extrapole** (anti-décalage d'horloge), commande `timer`.
