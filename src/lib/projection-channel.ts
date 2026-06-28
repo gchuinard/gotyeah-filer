@@ -15,6 +15,8 @@
  * précharge donc ses propres blobs et ne renvoie que sa PROGRESSION à la régie.
  */
 
+import { type Adjust } from "@/lib/image-adjust";
+
 export const PROJECTION_CHANNEL = "filer-projection";
 
 /** Sous-ensemble d'un fichier nécessaire à l'affichage public. */
@@ -33,6 +35,17 @@ export type ProjectionMessage =
   | { type: "index"; index: number }
   /** public → régie : progression du préchargement hors-ligne. */
   | { type: "progress"; ready: number; total: number; failed: number }
+  /**
+   * éditeur → fenêtres : réglage de retouche LIVE de l'image `id` (le projecteur
+   * applique le filtre en temps réel). `adjust: null` retire le filtre.
+   */
+  | { type: "adjust"; id: string; adjust: Adjust | null }
+  /**
+   * éditeur → fenêtres : les octets de `id` ont été remplacés (« écraser
+   * l'original ») → recharger l'image en contournant le cache et les blobs
+   * préchargés (figés). `v` = jeton de cache-bust.
+   */
+  | { type: "reload"; id: string; v: number }
   /** régie → public : ferme-toi. */
   | { type: "close" }
   /** public → régie : je me ferme (l'opérateur saura que l'écran est parti). */

@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { isAudio, isPdf, isVideo } from "@/lib/media";
 import { fsActive, fsEnabled, enterFs } from "@/lib/fullscreen";
 import { FadeImage } from "@/components/fade-image";
+import { AdjustFilter } from "@/components/adjust-filter";
+import { isAdjusted, type Adjust } from "@/lib/image-adjust";
 import { useImagePreload } from "@/lib/use-image-preload";
 import {
   openProjectionChannel,
@@ -28,6 +30,17 @@ export function ProjectionScreen() {
   const [fsSupported] = useState(
     () => typeof document !== "undefined" && fsEnabled(),
   );
+  // Réglage de retouche LIVE (diffusé par l'éditeur en mode présentateur) : on
+  // applique le filtre SVG à l'image courante en temps réel. Lié à un `id` pour
+  // ne pas « déborder » si l'image change pendant l'édition.
+  const [liveAdjust, setLiveAdjust] = useState<{
+    id: string;
+    adjust: Adjust;
+  } | null>(null);
+  // Cache-bust après écrasement (« reload ») : force le rechargement des octets
+  // frais, en contournant le blob préchargé (figé) et le cache HTTP.
+  const [bustMap, setBustMap] = useState<Map<string, number>>(() => new Map());
+  const filterId = `proj-${useId().replace(/:/g, "")}`;
 
   const chanRef = useRef<BroadcastChannel | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -70,8 +83,18 @@ export function ProjectionScreen() {
         stopPing();
         setFiles(msg.files);
         setIndex(msg.index);
+        // Élague le cache-bust des ids qui ne sont plus dans la liste (borne la Map).
+        const ids = new Set(msg.files.map((f) => f.id));
+        setBustMap((prev) => {
+          const next = new Map([...prev].filter(([k]) => ids.has(k)));
+          return next.size === prev.size ? prev : next;
+        });
       } else if (msg.type === "index") {
         setIndex(msg.index);
+      } else if (msg.type === "adjust") {
+        setLiveAdjust(msg.adjust ? { id: msg.id, adjust: msg.adjust } : null);
+      } else if (msg.type === "reload") {
+        setBustMap((prev) => new Map(prev).set(msg.id, msg.v));
       } else if (msg.type === "close") {
         window.close();
       }
@@ -168,16 +191,32 @@ export function ProjectionScreen() {
     return () => document.removeEventListener("keydown", onKey);
   }, [navigate, goFullscreen]);
 
-  // Blob préchargé (hors-ligne) si dispo, sinon lecture inline réseau.
-  const src = current
-    ? (preload.urls.get(current.id) ?? `/api/files/${current.id}?inline=1`)
-    : "";
+  // Source de l'image courante : après un écrasement (« reload »), on force les
+  // octets frais via un cache-bust (qui contourne aussi le blob préchargé figé) ;
+  // sinon blob préchargé (hors-ligne) si dispo, sinon lecture inline réseau.
+  const bust = current ? bustMap.get(current.id) : undefined;
+  const src = !current
+    ? ""
+    : bust != null
+      ? `/api/files/${current.id}?inline=1&v=${bust}`
+      : (preload.urls.get(current.id) ?? `/api/files/${current.id}?inline=1`);
+
+  // Filtre de retouche LIVE actif uniquement si le réglage vise l'image courante.
+  const filterOn =
+    !!current &&
+    !!current.mime?.startsWith("image/") &&
+    !!liveAdjust &&
+    liveAdjust.id === current.id &&
+    isAdjusted(liveAdjust.adjust);
 
   return (
     <div
       ref={rootRef}
       className={`fixed inset-0 z-0 flex h-screen w-screen items-center justify-center overflow-hidden bg-black ${isFs ? "cursor-none" : ""}`}
     >
+      {filterOn && liveAdjust && (
+        <AdjustFilter a={liveAdjust.adjust} id={filterId} />
+      )}
       {current ? (
         current.mime?.startsWith("image/") ? (
           <FadeImage
@@ -185,6 +224,7 @@ export function ProjectionScreen() {
             src={src}
             alt={current.original_name}
             className="max-h-screen max-w-[100vw] object-contain"
+            style={filterOn ? { filter: `url(#${filterId})` } : undefined}
           />
         ) : isVideo(current.mime, current.original_name) ? (
           <video

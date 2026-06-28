@@ -96,6 +96,13 @@ export function FileBrowser({
   // Retouche depuis le mode présentateur : id ouvert dans une modale par-dessus
   // la régie (distinct de `editingId`, qui pilote l'éditeur inline de l'explorateur).
   const [presenterEditId, setPresenterEditId] = useState<string | null>(null);
+  // Cache-bust local après « Écraser l'original » : l'URL inline est cachée
+  // ~5 min → on force le rechargement de l'aperçu de l'image écrasée.
+  const [bustMap, setBustMap] = useState<Map<string, number>>(() => new Map());
+  const bustPreview = (id: string) => {
+    const v = Date.now();
+    setBustMap((prev) => new Map(prev).set(id, v));
+  };
   const [filter, setFilter] = useState<MediaFilter>("all");
   const [query, setQuery] = useState("");
   const [sortField, setSortField] = useState<SortField>("date");
@@ -153,8 +160,12 @@ export function FileBrowser({
   const imageCount = visible.filter((f) =>
     f.mime?.startsWith("image/"),
   ).length;
-  const inlineSrc = (f: FileItem) =>
-    preload.urls.get(f.id) ?? `/api/files/${f.id}?inline=1`;
+  const inlineSrc = (f: FileItem) => {
+    const blob = preload.urls.get(f.id);
+    if (blob) return blob;
+    const v = bustMap.get(f.id);
+    return `/api/files/${f.id}?inline=1${v != null ? `&v=${v}` : ""}`;
+  };
 
   // Image matricielle retouchable (le SVG est exclu : non pixellisable proprement).
   const canEdit =
@@ -499,10 +510,12 @@ export function FileBrowser({
                 key={selected.id}
                 file={selected}
                 folders={folders}
+                bustValue={bustMap.get(selected.id)}
                 onDone={() => setEditingId(null)}
                 onSaved={(id) => {
                   setEditingId(null);
                   setSelectedId(id);
+                  bustPreview(id);
                 }}
               />
             ) : (
@@ -627,8 +640,13 @@ export function FileBrowser({
               key={presenterEdit.id}
               file={presenterEdit}
               folders={folders}
+              live
+              bustValue={bustMap.get(presenterEdit.id)}
               onDone={() => setPresenterEditId(null)}
-              onSaved={() => setPresenterEditId(null)}
+              onSaved={(id) => {
+                setPresenterEditId(null);
+                bustPreview(id);
+              }}
             />
           </div>
         </div>

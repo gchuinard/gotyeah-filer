@@ -80,6 +80,23 @@ export function setFileNote(id: string, note: string | null): boolean {
   );
 }
 
+/**
+ * Remplace les octets d'un fichier : met à jour taille + mime. `id`, `created_at`,
+ * `download_count`, dossier et partages restent inchangés → l'image garde sa
+ * place dans la liste. Sert la retouche « Écraser l'original ».
+ */
+export function updateFileBlob(
+  id: string,
+  size: number,
+  mime: string | null,
+): boolean {
+  return (
+    getDb()
+      .prepare("UPDATE files SET size = ?, mime = ? WHERE id = ?")
+      .run(size, mime, id).changes > 0
+  );
+}
+
 /** Déplace un fichier dans un dossier (ou à la racine si null). */
 export function moveFile(id: string, folderId: string | null): boolean {
   return (

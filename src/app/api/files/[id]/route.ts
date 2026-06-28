@@ -1,16 +1,20 @@
 import type { NextRequest } from "next/server";
-import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
-import { Readable } from "node:stream";
+import { createReadStream, createWriteStream } from "node:fs";
+import { mkdir, rename, stat, unlink } from "node:fs/promises";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { getSession } from "@/lib/auth";
 import { canAccessFile } from "@/lib/access";
+import { getMaxUploadBytes } from "@/lib/config";
 import {
   deleteFileCompletely,
+  filesDir,
   getFile,
   incrementDownloadCount,
   moveFile,
   setFileNote,
   storedFilePath,
+  updateFileBlob,
 } from "@/lib/files";
 import { getFolder } from "@/lib/folders";
 import { isInlineSafe, mediaContentType } from "@/lib/media";
@@ -130,6 +134,104 @@ export async function DELETE(
   if (!ok) return new Response("Introuvable", { status: 404 });
 
   return new Response(null, { status: 204 });
+}
+
+/**
+ * Écrase les octets d'un fichier existant (admin) : sert la retouche « Écraser
+ * l'original ». Écriture en streaming vers un fichier temporaire puis `rename`
+ * atomique par-dessus l'ancien → en cas d'échec, l'original n'est jamais corrompu.
+ * On met à jour `size`/`mime` mais on conserve `id`, `stored_name`, `created_at`,
+ * le dossier et les partages → l'image garde sa place. Corps = nouvelles données
+ * brutes (comme `/api/upload`). DESTRUCTIF et irréversible (cf. confirmation côté UI).
+ */
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const session = await getSession();
+  if (session?.role !== "admin") {
+    return new Response("Accès refusé", { status: 403 });
+  }
+
+  const { id } = await params;
+  const file = getFile(id);
+  if (!file) return new Response("Introuvable", { status: 404 });
+  if (!request.body) {
+    return Response.json({ error: "Corps de requête vide." }, { status: 400 });
+  }
+
+  // Type dérivé de l'original (l'extension ne change pas) — on ne fait PAS
+  // confiance au content-type du client, et c'est cohérent avec le service GET.
+  const mime = mediaContentType(file.mime, file.original_name);
+  const maxBytes = getMaxUploadBytes();
+  const declared = Number(request.headers.get("content-length") || 0);
+  if (declared && declared > maxBytes) {
+    return Response.json({ error: "Fichier trop volumineux." }, { status: 413 });
+  }
+
+  await mkdir(filesDir(), { recursive: true });
+  const dest = storedFilePath(file.stored_name);
+  // Temp + rename : l'original reste intact tant que le nouveau n'est pas complet.
+  const tmp = `${dest}.tmp-${crypto.randomUUID()}`;
+
+  let written = 0;
+  const limiter = new Transform({
+    transform(chunk, _enc, cb) {
+      written += chunk.length;
+      if (written > maxBytes) {
+        cb(new Error("FILE_TOO_LARGE"));
+        return;
+      }
+      cb(null, chunk);
+    },
+  });
+
+  try {
+    await pipeline(
+      Readable.fromWeb(request.body as Parameters<typeof Readable.fromWeb>[0]),
+      limiter,
+      createWriteStream(tmp),
+    );
+  } catch (err) {
+    await unlink(tmp).catch(() => {});
+    if (err instanceof Error && err.message === "FILE_TOO_LARGE") {
+      return Response.json(
+        { error: "Fichier trop volumineux." },
+        { status: 413 },
+      );
+    }
+    return Response.json({ error: "Échec de l'écriture." }, { status: 500 });
+  }
+
+  if (written === 0) {
+    await unlink(tmp).catch(() => {});
+    return Response.json({ error: "Fichier vide." }, { status: 400 });
+  }
+
+  try {
+    await rename(tmp, dest);
+  } catch {
+    await unlink(tmp).catch(() => {});
+    return Response.json(
+      { error: "Échec de l'enregistrement." },
+      { status: 500 },
+    );
+  }
+
+  try {
+    if (!updateFileBlob(id, written, mime)) {
+      // Le fichier a disparu de la base entre-temps (course rare).
+      return Response.json({ error: "Fichier introuvable." }, { status: 404 });
+    }
+  } catch {
+    // Les octets sont déjà remplacés sur disque (et servis via `stat`) ; seule
+    // la métadonnée `size` peut rester périmée (cosmétique dans la liste).
+    return Response.json(
+      { error: "Image remplacée, mais mise à jour des métadonnées échouée." },
+      { status: 500 },
+    );
+  }
+  return Response.json({ id, size: written }, { status: 200 });
 }
 
 /**

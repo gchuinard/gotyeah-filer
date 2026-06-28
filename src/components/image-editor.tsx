@@ -2,34 +2,19 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-
-/** Réglages de retouche (chaque valeur ∈ [-100, 100], 0 = inchangé). */
-export type Adjust = {
-  brightness: number;
-  contrast: number;
-  saturation: number;
-  red: number;
-  green: number;
-  blue: number;
-};
-
-const ZERO: Adjust = {
-  brightness: 0,
-  contrast: 0,
-  saturation: 0,
-  red: 0,
-  green: 0,
-  blue: 0,
-};
-
-const SLIDERS: { key: keyof Adjust; label: string }[] = [
-  { key: "brightness", label: "Luminosité" },
-  { key: "contrast", label: "Contraste" },
-  { key: "saturation", label: "Saturation" },
-  { key: "red", label: "Rouge" },
-  { key: "green", label: "Vert" },
-  { key: "blue", label: "Bleu" },
-];
+import { useConfirm } from "@/components/confirm-dialog";
+import { AdjustFilter } from "@/components/adjust-filter";
+import {
+  applyAdjust,
+  isAdjusted,
+  SLIDERS,
+  ZERO_ADJUST,
+  type Adjust,
+} from "@/lib/image-adjust";
+import {
+  openProjectionChannel,
+  type ProjectionMessage,
+} from "@/lib/projection-channel";
 
 type EditorFile = {
   id: string;
@@ -39,88 +24,8 @@ type EditorFile = {
 };
 type Folder = { id: string; name: string };
 
-const f = (v: number) => 1 + v / 100;
-
-/**
- * Filtre SVG inline pour l'APERÇU live (appliqué à l'<img> via `filter: url()`).
- * `color-interpolation-filters="sRGB"` est essentiel : sans lui le filtre opère
- * en linearRGB et le rendu ne correspondrait plus à l'export (boucle pixel sRGB).
- * Saturation via feColorMatrix, puis contraste + luminosité + gain par canal
- * repliés dans une transformation linéaire par canal (feComponentTransfer).
- */
-function AdjustFilter({ a, id }: { a: Adjust; id: string }) {
-  const B = f(a.brightness);
-  const C = f(a.contrast);
-  const lin = (gain: number) => {
-    const g = f(gain);
-    return { slope: g * B * C, intercept: g * B * 0.5 * (1 - C) };
-  };
-  const r = lin(a.red);
-  const g = lin(a.green);
-  const b = lin(a.blue);
-  return (
-    <svg aria-hidden className="absolute h-0 w-0">
-      <filter id={id} colorInterpolationFilters="sRGB">
-        <feColorMatrix type="saturate" values={String(f(a.saturation))} />
-        <feComponentTransfer>
-          <feFuncR type="linear" slope={r.slope} intercept={r.intercept} />
-          <feFuncG type="linear" slope={g.slope} intercept={g.intercept} />
-          <feFuncB type="linear" slope={b.slope} intercept={b.intercept} />
-        </feComponentTransfer>
-      </filter>
-    </svg>
-  );
-}
-
-/**
- * Applique les mêmes réglages que le filtre SVG, mais sur les pixels bruts pour
- * l'EXPORT (déterministe, sans dépendre de `ctx.filter` que Safari gère mal).
- * `data` est un Uint8ClampedArray : l'affectation clampe et arrondit toute seule.
- */
-function applyAdjust(data: Uint8ClampedArray, a: Adjust): void {
-  const S = f(a.saturation);
-  const B = f(a.brightness);
-  const C = f(a.contrast);
-
-  // Matrice de saturation : mêmes coefficients que SVG feColorMatrix type="saturate".
-  const m00 = 0.213 + 0.787 * S,
-    m01 = 0.715 - 0.715 * S,
-    m02 = 0.072 - 0.072 * S;
-  const m10 = 0.213 - 0.213 * S,
-    m11 = 0.715 + 0.285 * S,
-    m12 = 0.072 - 0.072 * S;
-  const m20 = 0.213 - 0.213 * S,
-    m21 = 0.715 - 0.715 * S,
-    m22 = 0.072 + 0.928 * S;
-
-  // Linéaire par canal (contraste + luminosité + gain), en espace [0,255].
-  const gr = f(a.red),
-    gg = f(a.green),
-    gb = f(a.blue);
-  const sr = gr * B * C,
-    ir = gr * B * 127.5 * (1 - C);
-  const sg = gg * B * C,
-    ig = gg * B * 127.5 * (1 - C);
-  const sb = gb * B * C,
-    ib = gb * B * 127.5 * (1 - C);
-
-  // Clampe la sortie de saturation à [0,255] avant le transfer linéaire : le SVG
-  // clampe feColorMatrix avant feComponentTransfer ; on reproduit ce palier pour
-  // que l'aperçu et l'export coïncident, même en réglages extrêmes.
-  const clamp = (v: number) => (v < 0 ? 0 : v > 255 ? 255 : v);
-  for (let i = 0; i < data.length; i += 4) {
-    const r = data[i],
-      g = data[i + 1],
-      b = data[i + 2];
-    const cr = clamp(m00 * r + m01 * g + m02 * b);
-    const cg = clamp(m10 * r + m11 * g + m12 * b);
-    const cb = clamp(m20 * r + m21 * g + m22 * b);
-    data[i] = sr * cr + ir;
-    data[i + 1] = sg * cg + ig;
-    data[i + 2] = sb * cb + ib;
-    // alpha (i+3) inchangé
-  }
-}
+/** Limite de taille canvas du navigateur (au-delà, le dessin échoue en silence). */
+const MAX_DIM = 16384;
 
 /** Nom sans extension. */
 function baseName(name: string): string {
@@ -132,31 +37,224 @@ function withExt(name: string, ext: string): string {
   return `${baseName(name)}.${ext}`;
 }
 
+/** Format d'écrasement : on conserve le type de l'original (sinon JPEG). */
+function overwriteMime(file: EditorFile): string {
+  const name = file.original_name.toLowerCase();
+  if (file.mime === "image/png" || name.endsWith(".png")) return "image/png";
+  if (file.mime === "image/webp" || name.endsWith(".webp")) return "image/webp";
+  return "image/jpeg";
+}
+
 /**
- * Éditeur d'image admin : réglages non-destructifs (aperçu live) puis
- * « Enregistrer sous » qui exporte une COPIE retouchée comme nouveau fichier
- * dans le dossier choisi (via /api/upload). L'original n'est jamais modifié.
+ * Rend l'image retouchée dans un blob — boucle pixel `<canvas>` avec EXACTEMENT
+ * la même math que le filtre SVG de l'aperçu (cf. `applyAdjust`), PAS `ctx.filter`
+ * (mal géré par Safari). `bust` force le rechargement des octets COURANTS (utile
+ * pour un 2e écrasement de suite : l'aperçu inline est caché ~5 min).
+ */
+async function renderAdjusted(
+  fileId: string,
+  adjust: Adjust,
+  outMime: string,
+  quality: number | undefined,
+  bust: number,
+): Promise<Blob> {
+  // Charge l'image à sa résolution native (même origine → canvas non « tainted »).
+  const img = new Image();
+  img.src = `/api/files/${fileId}?inline=1&_=${bust}`;
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("Chargement de l'image trop long.")),
+      30000,
+    );
+    img.onload = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    img.onerror = () => {
+      clearTimeout(timer);
+      reject(new Error("Image illisible."));
+    };
+  });
+
+  const w = img.naturalWidth;
+  const h = img.naturalHeight;
+  if (!w || !h) throw new Error("Image illisible.");
+  // Au-delà de la limite canvas du navigateur, le dessin échoue en silence
+  // (canvas « neutered ») → on refuse plutôt que d'écrire une image vide.
+  if (w > MAX_DIM || h > MAX_DIM) {
+    throw new Error(
+      `Image trop grande (${w}×${h} px). Maximum ${MAX_DIM} px par côté.`,
+    );
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas indisponible.");
+  // JPEG ne gère pas la transparence → fond blanc déterministe.
+  if (outMime === "image/jpeg") {
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, w, h);
+  }
+  ctx.drawImage(img, 0, 0);
+  const imageData = ctx.getImageData(0, 0, w, h);
+  applyAdjust(imageData.data, adjust);
+  ctx.putImageData(imageData, 0, 0);
+
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob(resolve, outMime, quality),
+  );
+  if (!blob) throw new Error("Échec de l'encodage.");
+  return blob;
+}
+
+/**
+ * Éditeur d'image admin : réglages non-destructifs (aperçu live). Deux sorties :
+ * - « Enregistrer une copie » : exporte une COPIE retouchée (nouveau fichier) —
+ *   l'original reste intact.
+ * - « Écraser l'original » : remplace DÉFINITIVEMENT le fichier d'origine (avec
+ *   confirmation). Destructif et irréversible.
+ *
+ * En mode présentateur (`live`), le réglage est diffusé en temps réel à la
+ * fenêtre publique (le projecteur) via `BroadcastChannel`.
  */
 export function ImageEditor({
   file,
   folders,
+  live = false,
+  bustValue,
   onDone,
   onSaved,
 }: {
   file: EditorFile;
   folders: Folder[];
+  /** Diffuse le réglage en direct à la fenêtre publique (mode présentateur). */
+  live?: boolean;
+  /** Jeton de cache-bust (si l'image a déjà été écrasée) pour l'aperçu. */
+  bustValue?: number;
   onDone: () => void;
+  /** Appelé après un enregistrement réussi (copie : nouvel id ; écrasement : même id). */
   onSaved: (id: string) => void;
 }) {
   const router = useRouter();
-  const [adjust, setAdjust] = useState<Adjust>(ZERO);
+  const confirm = useConfirm();
+  const [adjust, setAdjust] = useState<Adjust>(ZERO_ADJUST);
   const [showSave, setShowSave] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   // Id de filtre unique par instance ; les « : » de useId sont retirés car
   // invalides dans une référence CSS url(#…).
   const filterId = `adjust-${useId().replace(/:/g, "")}`;
 
-  const dirty = SLIDERS.some((s) => adjust[s.key] !== 0);
-  const src = `/api/files/${file.id}?inline=1`;
+  const dirty = isAdjusted(adjust);
+  // Aperçu : cache-bust si l'image vient d'être écrasée (l'URL inline est cachée
+  // ~5 min) → on ne montre pas une version périmée après un écrasement.
+  const src =
+    bustValue != null
+      ? `/api/files/${file.id}?inline=1&v=${bustValue}`
+      : `/api/files/${file.id}?inline=1`;
+
+  // Garde les setState d'un écrasement en vol (l'éditeur peut être fermé pendant).
+  const aliveRef = useRef(true);
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
+
+  // — Diffusion LIVE du réglage vers la fenêtre publique (mode présentateur) —
+  // Canal persistant (créé une fois) pour ne pas le rouvrir à chaque slider, et
+  // pour ne pas « clignoter » (un open/close par changement reposterait null).
+  const liveChanRef = useRef<BroadcastChannel | null>(null);
+  useEffect(() => {
+    if (!live) return;
+    const chan = openProjectionChannel();
+    liveChanRef.current = chan;
+    return () => {
+      // Quitter l'éditeur retire le filtre du projecteur. On ferme le canal au
+      // PROCHAIN tick : un close() juste après postMessage peut perdre le message
+      // (sinon le filtre resterait collé sur le projecteur).
+      try {
+        chan?.postMessage({
+          type: "adjust",
+          id: file.id,
+          adjust: null,
+        } satisfies ProjectionMessage);
+      } catch {
+        /* canal déjà fermé */
+      }
+      setTimeout(() => chan?.close(), 0);
+      liveChanRef.current = null;
+    };
+  }, [live, file.id]);
+  useEffect(() => {
+    if (!live) return;
+    liveChanRef.current?.postMessage({
+      type: "adjust",
+      id: file.id,
+      adjust,
+    } satisfies ProjectionMessage);
+  }, [live, adjust, file.id]);
+
+  async function overwrite() {
+    const ok = await confirm({
+      title: "Écraser l'image originale ?",
+      message:
+        "Les réglages remplaceront définitivement le fichier d'origine. Cette action est irréversible.",
+      confirmLabel: "Écraser",
+      danger: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const outMime = overwriteMime(file);
+      const bust = Date.now();
+      const blob = await renderAdjusted(
+        file.id,
+        adjust,
+        outMime,
+        outMime === "image/jpeg" ? 0.92 : undefined,
+        bust,
+      );
+      const res = await fetch(`/api/files/${file.id}`, {
+        method: "PUT",
+        headers: { "content-type": outMime },
+        body: blob,
+      });
+      if (!res.ok) {
+        let msg = "Échec de l'écrasement.";
+        try {
+          msg = (await res.json()).error ?? msg;
+        } catch {}
+        throw new Error(msg);
+      }
+      // Octets remplacés → demande aux fenêtres de projection de recharger (les
+      // blobs préchargés sont figés) et retire le filtre live. On réutilise le
+      // canal LIVE persistant (présentateur) : il reste ouvert → pas de course au
+      // close. Hors présentateur, aucune fenêtre n'écoute (l'explorateur se
+      // rafraîchit via `bustValue`), donc rien à diffuser.
+      liveChanRef.current?.postMessage({
+        type: "reload",
+        id: file.id,
+        v: bust,
+      } satisfies ProjectionMessage);
+      liveChanRef.current?.postMessage({
+        type: "adjust",
+        id: file.id,
+        adjust: null,
+      } satisfies ProjectionMessage);
+      router.refresh();
+      onSaved(file.id);
+    } catch (e) {
+      if (aliveRef.current) {
+        setError(e instanceof Error ? e.message : "Échec de l'écrasement.");
+      }
+    } finally {
+      if (aliveRef.current) setBusy(false);
+    }
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -195,18 +293,30 @@ export function ImageEditor({
         ))}
       </div>
 
+      {error && <p className="text-sm text-red-400">{error}</p>}
+
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
           onClick={() => setShowSave(true)}
-          className="rounded-lg bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 transition-colors hover:bg-white"
+          disabled={busy}
+          className="rounded-lg bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 transition-colors hover:bg-white disabled:opacity-50"
         >
-          Enregistrer sous…
+          Enregistrer une copie…
         </button>
         <button
           type="button"
-          disabled={!dirty}
-          onClick={() => setAdjust(ZERO)}
+          onClick={overwrite}
+          disabled={busy || !dirty}
+          title={!dirty ? "Modifie d'abord un réglage" : undefined}
+          className="rounded-lg border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:border-red-900 hover:bg-zinc-900 hover:text-red-300 disabled:opacity-40"
+        >
+          {busy ? "Écrasement…" : "Écraser l'original"}
+        </button>
+        <button
+          type="button"
+          disabled={!dirty || busy}
+          onClick={() => setAdjust(ZERO_ADJUST)}
           className="rounded-lg border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-900 disabled:opacity-40"
         >
           Réinitialiser
@@ -214,7 +324,8 @@ export function ImageEditor({
         <button
           type="button"
           onClick={onDone}
-          className="rounded-lg border border-zinc-800 px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:bg-zinc-900"
+          disabled={busy}
+          className="rounded-lg border border-zinc-800 px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:bg-zinc-900 disabled:opacity-50"
         >
           Fermer l&apos;éditeur
         </button>
@@ -237,7 +348,7 @@ export function ImageEditor({
   );
 }
 
-/** Modale « Enregistrer sous » : nom, dossier, format (PNG/JPEG), qualité. */
+/** Modale « Enregistrer une copie » : nom, dossier, format (PNG/JPEG), qualité. */
 function SaveDialog({
   file,
   folders,
@@ -294,65 +405,15 @@ function SaveDialog({
     setError(null);
     try {
       const mime = format === "png" ? "image/png" : "image/jpeg";
-
-      // 1. Charge l'image à sa résolution native (même origine → canvas non
-      // « tainted »). Timeout : une connexion qui pend ne déclenche pas onerror.
-      const img = new Image();
-      img.src = `/api/files/${file.id}?inline=1`;
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(
-          () => reject(new Error("Chargement de l'image trop long.")),
-          30000,
-        );
-        img.onload = () => {
-          clearTimeout(timer);
-          resolve();
-        };
-        img.onerror = () => {
-          clearTimeout(timer);
-          reject(new Error("Image illisible."));
-        };
-      });
-
-      // 2. Dessine + applique les réglages sur les pixels.
-      const w = img.naturalWidth;
-      const h = img.naturalHeight;
-      if (!w || !h) throw new Error("Image illisible.");
-      // Au-delà de la limite canvas du navigateur, le dessin échoue en silence
-      // (canvas « neutered ») → on refuse plutôt que d'enregistrer une image vide.
-      const MAX_DIM = 16384;
-      if (w > MAX_DIM || h > MAX_DIM) {
-        throw new Error(
-          `Image trop grande (${w}×${h} px). Maximum ${MAX_DIM} px par côté.`,
-        );
-      }
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Canvas indisponible.");
-      // JPEG ne gère pas la transparence → fond blanc déterministe (sinon la
-      // couleur de composition des zones transparentes dépend du navigateur).
-      if (format === "jpg") {
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, w, h);
-      }
-      ctx.drawImage(img, 0, 0);
-      const imageData = ctx.getImageData(0, 0, w, h);
-      applyAdjust(imageData.data, adjust);
-      ctx.putImageData(imageData, 0, 0);
-
-      // 3. Encode dans le format choisi.
-      const blob = await new Promise<Blob | null>((resolve) =>
-        canvas.toBlob(
-          resolve,
-          mime,
-          format === "jpg" ? quality / 100 : undefined,
-        ),
+      const blob = await renderAdjusted(
+        file.id,
+        adjust,
+        mime,
+        format === "jpg" ? quality / 100 : undefined,
+        Date.now(),
       );
-      if (!blob) throw new Error("Échec de l'encodage.");
 
-      // 4. Upload comme NOUVEAU fichier (l'original reste intact).
+      // Upload comme NOUVEAU fichier (l'original reste intact).
       const finalName = withExt(name.trim() || "image", format);
       const headers: Record<string, string> = {
         "x-filename": encodeURIComponent(finalName),
@@ -398,7 +459,7 @@ function SaveDialog({
       />
       <div className="relative w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-950 p-6 shadow-2xl">
         <h2 className="mb-4 text-lg font-semibold text-zinc-100">
-          Enregistrer sous…
+          Enregistrer une copie…
         </h2>
 
         <label className="mb-3 flex flex-col gap-1">

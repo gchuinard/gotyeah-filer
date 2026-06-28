@@ -53,6 +53,9 @@ export function ProjectionRegie({
     total: 0,
     failed: 0,
   });
+  // Cache-bust après écrasement d'une image (« reload ») : rafraîchit l'aperçu
+  // de la régie (octets remplacés) — symétrique de la fenêtre publique.
+  const [bustMap, setBustMap] = useState<Map<string, number>>(() => new Map());
 
   const chanRef = useRef<BroadcastChannel | null>(null);
   const publicWinRef = useRef<Window | null>(null);
@@ -83,6 +86,12 @@ export function ProjectionRegie({
     current.mime !== "image/svg+xml" &&
     !current.original_name.toLowerCase().endsWith(".svg");
 
+  // Source d'aperçu (réseau), avec cache-bust si l'image vient d'être écrasée.
+  const previewSrc = (id: string) => {
+    const v = bustMap.get(id);
+    return `/api/files/${id}?inline=1${v != null ? `&v=${v}` : ""}`;
+  };
+
   // — Canal : écoute + teardown (referme la fenêtre public à la sortie) —
   useEffect(() => {
     const chan = openProjectionChannel();
@@ -107,6 +116,8 @@ export function ProjectionRegie({
             total: msg.total,
             failed: msg.failed,
           });
+        } else if (msg.type === "reload") {
+          setBustMap((prev) => new Map(prev).set(msg.id, msg.v));
         } else if (msg.type === "public-closed") {
           setPublicOpen(false);
         }
@@ -151,6 +162,16 @@ export function ProjectionRegie({
       index: indexRef.current,
     } satisfies ProjectionMessage);
     lastIdxRef.current = indexRef.current;
+    // Élague le cache-bust des ids disparus (borne la Map). setState dans une
+    // fonction imbriquée → satisfait react-hooks/set-state-in-effect.
+    const prune = () => {
+      const ids = new Set(filesRef.current.map((f) => f.id));
+      setBustMap((prev) => {
+        const next = new Map([...prev].filter(([k]) => ids.has(k)));
+        return next.size === prev.size ? prev : next;
+      });
+    };
+    prune();
   }, [filesKey]);
 
   // Détecte la fermeture de la fenêtre public par l'utilisateur (filet de
@@ -304,7 +325,7 @@ export function ProjectionRegie({
             isImageFile(current) ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={`/api/files/${current.id}?inline=1`}
+                src={previewSrc(current.id)}
                 alt={current.original_name}
                 className="max-h-full max-w-full object-contain"
               />
@@ -397,7 +418,7 @@ export function ProjectionRegie({
                 {isImageFile(next) ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={`/api/files/${next.id}?inline=1`}
+                    src={previewSrc(next.id)}
                     alt=""
                     className="size-16 shrink-0 rounded-md border border-zinc-800 object-cover"
                   />

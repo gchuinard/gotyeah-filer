@@ -10,10 +10,13 @@ export function FadeImage({
   src,
   alt,
   className,
+  style,
 }: {
   src: string;
   alt: string;
   className: string;
+  /** Style inline optionnel (ex. filtre de retouche live en projection). */
+  style?: React.CSSProperties;
 }) {
   const [loaded, setLoaded] = useState(false);
   return (
@@ -22,6 +25,7 @@ export function FadeImage({
       src={src}
       alt={alt}
       onLoad={() => setLoaded(true)}
+      style={style}
       className={`${className} transition-opacity duration-1000 ease-in-out ${loaded ? "opacity-100" : "opacity-0"}`}
     />
   );
