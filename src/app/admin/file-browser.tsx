@@ -93,6 +93,9 @@ export function FileBrowser({
   const [offline, setOffline] = useState(false);
   const [presenter, setPresenter] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  // Retouche depuis le mode présentateur : id ouvert dans une modale par-dessus
+  // la régie (distinct de `editingId`, qui pilote l'éditeur inline de l'explorateur).
+  const [presenterEditId, setPresenterEditId] = useState<string | null>(null);
   const [filter, setFilter] = useState<MediaFilter>("all");
   const [query, setQuery] = useState("");
   const [sortField, setSortField] = useState<SortField>("date");
@@ -138,6 +141,10 @@ export function FileBrowser({
   // Image de départ / courante du mode présentateur (jamais hors bornes).
   const presenterIndex = lbIndex >= 0 ? lbIndex : 0;
   const presenterFile = visible[presenterIndex] ?? null;
+  // Cible de la retouche lancée depuis la régie (modale par-dessus le présentateur).
+  const presenterEdit = presenterEditId
+    ? (files.find((f) => f.id === presenterEditId) ?? null)
+    : null;
 
   // Préchargement « projection hors-ligne » des images de la vue courante.
   const preload = useImagePreload(visible, offline);
@@ -583,8 +590,48 @@ export function FileBrowser({
           onNote={(v) => {
             if (presenterFile) setNote(presenterFile.id, v);
           }}
+          onEdit={() => {
+            if (canEdit && selected) setPresenterEditId(selected.id);
+          }}
+          paused={!!presenterEditId}
           onClose={() => setPresenter(false)}
         />
+      )}
+
+      {/* Retouche lancée depuis la régie : l'éditeur existant dans une modale
+          au-dessus du présentateur (z-[80] > régie z-[70] ; son SaveDialog
+          interne reste au-dessus via le contexte d'empilement de la modale).
+          « Enregistrer sous… » crée une copie (router.refresh) sans changer la
+          sélection → l'image projetée sur l'écran public ne bouge pas. */}
+      {presenterEdit && (
+        <div
+          className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-zinc-950/90 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Retoucher l'image"
+        >
+          <div className="my-auto w-full max-w-3xl rounded-2xl border border-zinc-800 bg-zinc-950 p-5 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h2 className="min-w-0 truncate text-lg font-semibold text-zinc-100">
+                Retoucher — {presenterEdit.original_name}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setPresenterEditId(null)}
+                className="shrink-0 rounded-lg border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-900"
+              >
+                Fermer ✕
+              </button>
+            </div>
+            <ImageEditor
+              key={presenterEdit.id}
+              file={presenterEdit}
+              folders={folders}
+              onDone={() => setPresenterEditId(null)}
+              onSaved={() => setPresenterEditId(null)}
+            />
+          </div>
+        </div>
       )}
     </div>
   );

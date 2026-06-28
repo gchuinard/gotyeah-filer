@@ -31,6 +31,8 @@ export function ProjectionRegie({
   note,
   onNote,
   onClose,
+  onEdit,
+  paused = false,
 }: {
   files: PublicFile[];
   index: number;
@@ -39,6 +41,10 @@ export function ProjectionRegie({
   note: string;
   onNote: (value: string) => void;
   onClose: () => void;
+  /** Ouvre l'éditeur de retouche sur l'image courante (le parent gère la modale). */
+  onEdit?: () => void;
+  /** Neutralise le clavier de la régie (ex. pendant l'édition de retouche). */
+  paused?: boolean;
 }) {
   const [publicOpen, setPublicOpen] = useState(false);
   const [blocked, setBlocked] = useState(false);
@@ -57,11 +63,13 @@ export function ProjectionRegie({
   const indexRef = useRef(index);
   const onIndexRef = useRef(onIndex);
   const onCloseRef = useRef(onClose);
+  const pausedRef = useRef(paused);
   useEffect(() => {
     filesRef.current = files;
     indexRef.current = index;
     onIndexRef.current = onIndex;
     onCloseRef.current = onClose;
+    pausedRef.current = paused;
   });
   // Dernière position diffusée : évite l'écho (public → régie → public).
   const lastIdxRef = useRef(-1);
@@ -69,6 +77,11 @@ export function ProjectionRegie({
   const max = files.length - 1;
   const current = files[index] ?? null;
   const next = index < max ? files[index + 1] : null;
+  // Image courante retouchable ? (image matricielle ; SVG exclu, non pixellisable.)
+  const canEditCurrent =
+    !!current?.mime?.startsWith("image/") &&
+    current.mime !== "image/svg+xml" &&
+    !current.original_name.toLowerCase().endsWith(".svg");
 
   // — Canal : écoute + teardown (referme la fenêtre public à la sortie) —
   useEffect(() => {
@@ -164,6 +177,9 @@ export function ProjectionRegie({
   // la saisie des notes (sinon les flèches déplaceraient le curseur ET l'image).
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      // Édition de retouche en cours (modale par-dessus la régie) → on rend la
+      // main au clavier de la modale (sinon ←/→ navigueraient, Échap quitterait).
+      if (pausedRef.current) return;
       const el = e.target as HTMLElement | null;
       if (
         el &&
@@ -222,6 +238,13 @@ export function ProjectionRegie({
       return;
     }
     publicWinRef.current = win;
+    try {
+      // Donne le focus à la fenêtre fraîche → la touche F (plein écran) marche
+      // tout de suite, sans devoir cliquer dedans d'abord.
+      win.focus();
+    } catch {
+      /* fenêtre déjà fermée */
+    }
     setBlocked(false);
     setPublicOpen(true);
     // Sync proactif (en plus du `hello` émis par la fenêtre à son chargement).
@@ -267,7 +290,16 @@ export function ProjectionRegie({
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 p-4 lg:flex-row">
         {/* Aperçu de l'image courante */}
-        <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-xl border border-zinc-800 bg-black">
+        <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-xl border border-zinc-800 bg-black">
+          {onEdit && current && canEditCurrent && (
+            <button
+              type="button"
+              onClick={onEdit}
+              className="absolute right-3 top-3 z-10 rounded-lg border border-white/20 bg-black/60 px-3 py-1.5 text-sm text-zinc-100 backdrop-blur-sm transition-colors hover:bg-black/80"
+            >
+              Retoucher ✎
+            </button>
+          )}
           {current ? (
             isImageFile(current) ? (
               // eslint-disable-next-line @next/next/no-img-element
