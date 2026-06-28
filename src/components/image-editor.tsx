@@ -5,12 +5,12 @@ import { useRouter } from "next/navigation";
 import { useConfirm } from "@/components/confirm-dialog";
 import { AdjustFilter } from "@/components/adjust-filter";
 import {
-  applyAdjust,
   isAdjusted,
   SLIDERS,
   ZERO_ADJUST,
   type Adjust,
 } from "@/lib/image-adjust";
+import { overwriteMime, renderAdjusted } from "@/lib/render-adjusted";
 import {
   openProjectionChannel,
   type ProjectionMessage,
@@ -24,9 +24,6 @@ type EditorFile = {
 };
 type Folder = { id: string; name: string };
 
-/** Limite de taille canvas du navigateur (au-delà, le dessin échoue en silence). */
-const MAX_DIM = 16384;
-
 /** Nom sans extension. */
 function baseName(name: string): string {
   const dot = name.lastIndexOf(".");
@@ -35,77 +32,6 @@ function baseName(name: string): string {
 /** Remplace l'extension du nom par `ext`. */
 function withExt(name: string, ext: string): string {
   return `${baseName(name)}.${ext}`;
-}
-
-/** Format d'écrasement : on conserve le type de l'original (sinon JPEG). */
-function overwriteMime(file: EditorFile): string {
-  const name = file.original_name.toLowerCase();
-  if (file.mime === "image/png" || name.endsWith(".png")) return "image/png";
-  if (file.mime === "image/webp" || name.endsWith(".webp")) return "image/webp";
-  return "image/jpeg";
-}
-
-/**
- * Rend l'image retouchée dans un blob — boucle pixel `<canvas>` avec EXACTEMENT
- * la même math que le filtre SVG de l'aperçu (cf. `applyAdjust`), PAS `ctx.filter`
- * (mal géré par Safari). `bust` force le rechargement des octets COURANTS (utile
- * pour un 2e écrasement de suite : l'aperçu inline est caché ~5 min).
- */
-async function renderAdjusted(
-  fileId: string,
-  adjust: Adjust,
-  outMime: string,
-  quality: number | undefined,
-  bust: number,
-): Promise<Blob> {
-  // Charge l'image à sa résolution native (même origine → canvas non « tainted »).
-  const img = new Image();
-  img.src = `/api/files/${fileId}?inline=1&_=${bust}`;
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error("Chargement de l'image trop long.")),
-      30000,
-    );
-    img.onload = () => {
-      clearTimeout(timer);
-      resolve();
-    };
-    img.onerror = () => {
-      clearTimeout(timer);
-      reject(new Error("Image illisible."));
-    };
-  });
-
-  const w = img.naturalWidth;
-  const h = img.naturalHeight;
-  if (!w || !h) throw new Error("Image illisible.");
-  // Au-delà de la limite canvas du navigateur, le dessin échoue en silence
-  // (canvas « neutered ») → on refuse plutôt que d'écrire une image vide.
-  if (w > MAX_DIM || h > MAX_DIM) {
-    throw new Error(
-      `Image trop grande (${w}×${h} px). Maximum ${MAX_DIM} px par côté.`,
-    );
-  }
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Canvas indisponible.");
-  // JPEG ne gère pas la transparence → fond blanc déterministe.
-  if (outMime === "image/jpeg") {
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, w, h);
-  }
-  ctx.drawImage(img, 0, 0);
-  const imageData = ctx.getImageData(0, 0, w, h);
-  applyAdjust(imageData.data, adjust);
-  ctx.putImageData(imageData, 0, 0);
-
-  const blob = await new Promise<Blob | null>((resolve) =>
-    canvas.toBlob(resolve, outMime, quality),
-  );
-  if (!blob) throw new Error("Échec de l'encodage.");
-  return blob;
 }
 
 /**

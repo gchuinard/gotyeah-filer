@@ -4,6 +4,8 @@
  * mémoire) est dans `projection-relay.ts`. Transport : SSE pour recevoir,
  * POST pour émettre (cf. `app/api/projection/*`). */
 
+import { type Adjust } from "@/lib/image-adjust";
+
 export type RemoteFile = { id: string; name: string };
 
 /** Instantané du chrono (la télécommande l'extrapole localement pour tiquer). */
@@ -20,6 +22,8 @@ export type RemoteState = {
   note: string;
   /** Chrono du présentateur (instantané + état marche/pause). */
   timer: RemoteTimer;
+  /** Image courante retouchable ? (image matricielle, SVG exclu). */
+  editable: boolean;
 };
 
 export type RemoteMsg =
@@ -33,7 +37,19 @@ export type RemoteMsg =
   | { type: "note"; id: string; value: string }
   /** télécommande → régie : pilote le chrono (pause/reprise ou remise à zéro). */
   | { type: "timer"; action: "toggle" | "reset" }
+  /**
+   * télécommande → régie : réglage de retouche LIVE de l'image `id` (la régie le
+   * rediffuse à la fenêtre publique). `adjust: null` retire le filtre.
+   */
+  | { type: "adjust"; id: string; adjust: Adjust | null }
+  /**
+   * télécommande → régie : APPLIQUE la retouche en écrasant l'original (la régie
+   * fait le rendu canvas + PUT, puis rafraîchit le projecteur). Destructif.
+   */
+  | { type: "retouch"; id: string; adjust: Adjust }
   /** télécommande → régie : (re)demande l'état courant. */
   | { type: "request-state" }
   /** régie → télécommande : état courant (image, suivante, position, noir, note, chrono). */
-  | ({ type: "state" } & RemoteState);
+  | ({ type: "state" } & RemoteState)
+  /** régie → télécommande : résultat d'un écrasement de retouche (succès/échec). */
+  | { type: "retouch-done"; ok: boolean };

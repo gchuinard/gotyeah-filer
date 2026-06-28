@@ -607,6 +607,10 @@ export function FileBrowser({
             if (canEdit && selected) setPresenterEditId(selected.id);
           }}
           onNoteById={(id, v) => setNote(id, v)}
+          onRetouched={(id) => {
+            router.refresh();
+            bustPreview(id);
+          }}
           paused={!!presenterEditId}
           onClose={() => setPresenter(false)}
         />

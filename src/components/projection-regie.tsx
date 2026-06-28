@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
   openProjectionChannel,
   type ProjectionMessage,
@@ -13,6 +13,9 @@ import {
   usePresenterTimer,
   type Clock,
 } from "@/lib/use-presenter-timer";
+import { AdjustFilter } from "@/components/adjust-filter";
+import { isAdjusted, type Adjust } from "@/lib/image-adjust";
+import { overwriteMime, renderAdjusted } from "@/lib/render-adjusted";
 
 type Progress = { ready: number; total: number; failed: number };
 
@@ -39,6 +42,7 @@ export function ProjectionRegie({
   onClose,
   onEdit,
   onNoteById,
+  onRetouched,
   paused = false,
 }: {
   files: PublicFile[];
@@ -52,6 +56,8 @@ export function ProjectionRegie({
   onEdit?: () => void;
   /** Édite la note d'un fichier précis (commande de la télécommande). */
   onNoteById?: (id: string, value: string) => void;
+  /** Après un écrasement de retouche lancé depuis la télécommande (rafraîchir les données). */
+  onRetouched?: (id: string) => void;
   /** Neutralise le clavier de la régie (ex. pendant l'édition de retouche). */
   paused?: boolean;
 }) {
@@ -69,6 +75,13 @@ export function ProjectionRegie({
   // (null = inactive) + état « écran noir » (relayé à la fenêtre publique).
   const [remoteCode, setRemoteCode] = useState<string | null>(null);
   const [black, setBlack] = useState(false);
+  // Retouche LIVE venue de la télécommande : réglage appliqué à l'aperçu courant
+  // (et rediffusé à la fenêtre publique). Lié à un `id` pour ne pas déborder.
+  const [liveAdjust, setLiveAdjust] = useState<{
+    id: string;
+    adjust: Adjust;
+  } | null>(null);
+  const regieFilterId = `regie-adjust-${useId().replace(/:/g, "")}`;
 
   // Chrono du présentateur (état partagé) : la régie l'affiche, le pilote, et en
   // pousse un instantané à la télécommande. Destructuré en locaux (les callbacks
@@ -101,6 +114,9 @@ export function ProjectionRegie({
   const slideRef = useRef<Clock>({ base: 0, since: null });
   const runningRef = useRef(false);
   const onNoteByIdRef = useRef(onNoteById);
+  const onRetouchedRef = useRef(onRetouched);
+  // Garde anti-écrasements concurrents (sérialise les commandes `retouch`).
+  const retouchBusyRef = useRef(false);
   useEffect(() => {
     filesRef.current = files;
     indexRef.current = index;
@@ -114,6 +130,7 @@ export function ProjectionRegie({
     slideRef.current = timerSlide;
     runningRef.current = timerRunning;
     onNoteByIdRef.current = onNoteById;
+    onRetouchedRef.current = onRetouched;
   });
   // Dernière position diffusée : évite l'écho (public → régie → public).
   const lastIdxRef = useRef(-1);
@@ -126,6 +143,13 @@ export function ProjectionRegie({
     !!current?.mime?.startsWith("image/") &&
     current.mime !== "image/svg+xml" &&
     !current.original_name.toLowerCase().endsWith(".svg");
+  // Filtre de retouche live (depuis la télécommande) appliqué à l'aperçu courant.
+  const liveFilterOn =
+    !!current &&
+    canEditCurrent &&
+    !!liveAdjust &&
+    liveAdjust.id === current.id &&
+    isAdjusted(liveAdjust.adjust);
 
   // Source d'aperçu (réseau), avec cache-bust si l'image vient d'être écrasée.
   const previewSrc = (id: string) => {
@@ -244,6 +268,10 @@ export function ProjectionRegie({
     const cur = fs[idx] ?? null;
     const nx = idx < fs.length - 1 ? fs[idx + 1] : null;
     const now = Date.now();
+    const editable =
+      !!cur?.mime?.startsWith("image/") &&
+      cur.mime !== "image/svg+xml" &&
+      !cur.original_name.toLowerCase().endsWith(".svg");
     const msg: RemoteMsg = {
       type: "state",
       index: idx,
@@ -257,6 +285,7 @@ export function ProjectionRegie({
         slideMs: clockElapsed(slideRef.current, now),
         running: runningRef.current,
       },
+      editable,
     };
     fetch("/api/projection/cmd", {
       method: "POST",
@@ -265,7 +294,73 @@ export function ProjectionRegie({
     }).catch(() => {});
   }, []);
 
-  // Reçoit les commandes du téléphone (SSE) : navigation + écran noir.
+  // Applique une retouche venue de la télécommande : la RÉGIE (laptop, plus
+  // puissant) fait le rendu canvas + l'écrasement (PUT), puis rafraîchit le
+  // projecteur (reload + retrait du filtre live) et la régie, et resynchronise.
+  const applyRetouch = useCallback(
+    async (id: string, adjust: Adjust) => {
+      if (retouchBusyRef.current) return; // sérialise (pas d'écrasements concurrents)
+      const f = filesRef.current.find((x) => x.id === id);
+      if (!f) return;
+      retouchBusyRef.current = true;
+      const outMime = overwriteMime(f);
+      const bust = Date.now();
+      let ok = false;
+      try {
+        const blob = await renderAdjusted(
+          id,
+          adjust,
+          outMime,
+          outMime === "image/jpeg" ? 0.92 : undefined,
+          bust,
+        );
+        const res = await fetch(`/api/files/${id}`, {
+          method: "PUT",
+          headers: { "content-type": outMime },
+          body: blob,
+        });
+        ok = res.ok;
+      } catch {
+        ok = false;
+      }
+      // On retire TOUJOURS le filtre live (succès → octets bakés via reload ;
+      // échec → on revient à l'original). Sans ça, un échec laisserait le filtre
+      // collé sur le projecteur alors que l'image n'a pas changé.
+      if (ok) {
+        chanRef.current?.postMessage({
+          type: "reload",
+          id,
+          v: bust,
+        } satisfies ProjectionMessage);
+        setBustMap((prev) => new Map(prev).set(id, bust));
+        onRetouchedRef.current?.(id);
+      }
+      chanRef.current?.postMessage({
+        type: "adjust",
+        id,
+        adjust: null,
+      } satisfies ProjectionMessage);
+      setLiveAdjust(null);
+      // Informe la télécommande du résultat (elle garde le panneau ouvert en attente).
+      const code = codeRef.current;
+      if (code) {
+        fetch("/api/projection/cmd", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            code,
+            from: remoteClientRef.current,
+            msg: { type: "retouch-done", ok } satisfies RemoteMsg,
+          }),
+        }).catch(() => {});
+      }
+      pushState();
+      retouchBusyRef.current = false;
+    },
+    [pushState],
+  );
+
+  // Reçoit les commandes du téléphone (SSE) : navigation + écran noir + retouche.
   useEffect(() => {
     if (!remoteCode) return;
     const es = new EventSource(`/api/projection/stream?code=${remoteCode}`);
@@ -279,6 +374,7 @@ export function ProjectionRegie({
         id?: string;
         value?: string;
         action?: string;
+        adjust?: Adjust | null;
       };
       try {
         msg = JSON.parse(e.data);
@@ -304,12 +400,28 @@ export function ProjectionRegie({
       } else if (msg.type === "timer") {
         if (msg.action === "toggle") timerToggle();
         else if (msg.action === "reset") timerReset();
+      } else if (msg.type === "adjust" && typeof msg.id === "string") {
+        // Réglage live → rediffusé à la fenêtre publique + appliqué à l'aperçu régie.
+        const a = msg.adjust ?? null;
+        const id = msg.id;
+        setLiveAdjust(a ? { id, adjust: a } : null);
+        chanRef.current?.postMessage({
+          type: "adjust",
+          id,
+          adjust: a,
+        } satisfies ProjectionMessage);
+      } else if (
+        msg.type === "retouch" &&
+        typeof msg.id === "string" &&
+        msg.adjust
+      ) {
+        void applyRetouch(msg.id, msg.adjust);
       } else if (msg.type === "request-state") {
         pushState();
       }
     };
     return () => es.close();
-  }, [remoteCode, go, pushState, timerToggle, timerReset]);
+  }, [remoteCode, go, pushState, timerToggle, timerReset, applyRetouch]);
 
   // Pousse l'état au téléphone à chaque changement (position / liste / noir).
   // Attend que le `hello` SSE ait posé le clientId — sinon le push partirait avec
@@ -478,6 +590,9 @@ export function ProjectionRegie({
               Écran noir
             </div>
           )}
+          {liveFilterOn && liveAdjust && (
+            <AdjustFilter a={liveAdjust.adjust} id={regieFilterId} />
+          )}
           {current ? (
             isImageFile(current) ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -485,6 +600,11 @@ export function ProjectionRegie({
                 src={previewSrc(current.id)}
                 alt={current.original_name}
                 className="max-h-full max-w-full object-contain"
+                style={
+                  liveFilterOn
+                    ? { filter: `url(#${regieFilterId})` }
+                    : undefined
+                }
               />
             ) : (
               <div className="flex flex-col items-center gap-2 p-6 text-center">

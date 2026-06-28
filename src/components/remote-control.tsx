@@ -1,7 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { type RemoteMsg, type RemoteState } from "@/lib/remote-protocol";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+  type RemoteFile,
+  type RemoteMsg,
+  type RemoteState,
+} from "@/lib/remote-protocol";
+import { AdjustFilter } from "@/components/adjust-filter";
+import {
+  isAdjusted,
+  SLIDERS,
+  ZERO_ADJUST,
+  type Adjust,
+} from "@/lib/image-adjust";
 
 /** Formate une durée en h:mm:ss (heures masquées si nulles). */
 function fmt(ms: number): string {
@@ -33,12 +44,27 @@ export function RemoteControl() {
   const [now, setNow] = useState(() => Date.now());
   // Instant (horloge du téléphone) de réception du dernier instantané chrono.
   const [timerRecvAt, setTimerRecvAt] = useState(0);
+  // Retouche depuis le téléphone (aperçu live projeté via la régie).
+  const [retouching, setRetouching] = useState(false);
+  const [radjust, setRadjust] = useState<Adjust>(ZERO_ADJUST);
+  const [confirming, setConfirming] = useState(false);
+  const [committing, setCommitting] = useState(false);
+  const [retouchError, setRetouchError] = useState<string | null>(null);
+  // Image cible FIGÉE à l'ouverture du panneau : la projection peut changer (SSE)
+  // pendant qu'on retouche → on reste lié à CETTE image (sinon on écraserait la mauvaise).
+  const [retouchTarget, setRetouchTarget] = useState<RemoteFile | null>(null);
+  const phoneFilterId = `radjust-${useId().replace(/:/g, "")}`;
 
   const clientRef = useRef("");
   const codeRef = useRef("");
   // Note en attente d'envoi (debounce + flush au démontage).
   const pendingNote = useRef<{ id: string; value: string } | null>(null);
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Throttle d'envoi du réglage live (au plus ~8×/s, dernière valeur).
+  const adjustSendTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestAdjustRef = useRef<Adjust>(ZERO_ADJUST);
+  // Filet de sécurité si la régie ne renvoie pas le résultat de l'écrasement.
+  const commitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const send = useCallback((msg: RemoteMsg) => {
     fetch("/api/projection/cmd", {
@@ -58,7 +84,7 @@ export function RemoteControl() {
     const es = new EventSource(`/api/projection/stream?code=${codeRef.current}`);
     es.onopen = () => setConn("open");
     es.onmessage = (e) => {
-      let msg: { type?: string; clientId?: string } & Partial<RemoteState>;
+      let msg: { type?: string; clientId?: string; ok?: boolean } & Partial<RemoteState>;
       try {
         msg = JSON.parse(e.data);
       } catch {
@@ -67,6 +93,22 @@ export function RemoteControl() {
       if (msg.type === "hello") {
         clientRef.current = msg.clientId ?? "";
         send({ type: "request-state" });
+      } else if (msg.type === "retouch-done") {
+        // Résultat de l'écrasement : succès → on ferme ; échec → on garde le panneau.
+        if (commitTimer.current) {
+          clearTimeout(commitTimer.current);
+          commitTimer.current = null;
+        }
+        if (msg.ok) {
+          // La régie a déjà retiré le filtre + rafraîchi → on ferme (setters stables).
+          setRetouching(false);
+          setConfirming(false);
+          setCommitting(false);
+          setRetouchTarget(null);
+        } else {
+          setCommitting(false);
+          setRetouchError("Échec de l'écrasement. Réessaie.");
+        }
       } else if (msg.type === "state") {
         const t = Date.now();
         setTimerRecvAt(t);
@@ -79,6 +121,7 @@ export function RemoteControl() {
           black: !!msg.black,
           note: msg.note ?? "",
           timer: msg.timer ?? { totalMs: 0, slideMs: 0, running: false },
+          editable: !!msg.editable,
         });
       }
     };
@@ -98,6 +141,8 @@ export function RemoteControl() {
   useEffect(() => {
     return () => {
       if (noteTimer.current) clearTimeout(noteTimer.current);
+      if (adjustSendTimer.current) clearTimeout(adjustSendTimer.current);
+      if (commitTimer.current) clearTimeout(commitTimer.current);
       const p = pendingNote.current;
       if (p) send({ type: "note", id: p.id, value: p.value });
     };
@@ -116,6 +161,75 @@ export function RemoteControl() {
         pendingNote.current = null;
       }
     }, 500);
+  }
+
+  // Envoi throttlé du réglage live (trailing : au plus ~8×/s, toujours la dernière valeur).
+  function sendAdjustThrottled(id: string, a: Adjust) {
+    latestAdjustRef.current = a;
+    if (adjustSendTimer.current) return;
+    adjustSendTimer.current = setTimeout(() => {
+      adjustSendTimer.current = null;
+      send({ type: "adjust", id, adjust: latestAdjustRef.current });
+    }, 120);
+  }
+
+  function openRetouch() {
+    const cur = state?.current ?? null;
+    if (!cur?.id) return;
+    setRetouchTarget(cur); // image FIGÉE pour toute la session de retouche
+    setRadjust(ZERO_ADJUST);
+    setConfirming(false);
+    setCommitting(false);
+    setRetouchError(null);
+    setRetouching(true);
+  }
+
+  function closeRetouch(revert: boolean) {
+    if (adjustSendTimer.current) {
+      clearTimeout(adjustSendTimer.current);
+      adjustSendTimer.current = null;
+    }
+    if (commitTimer.current) {
+      clearTimeout(commitTimer.current);
+      commitTimer.current = null;
+    }
+    const id = retouchTarget?.id;
+    // « Fermer/Annuler » : on retire le filtre du projecteur (retour à l'original).
+    // Après un écrasement, c'est la régie qui retire le filtre (post-PUT) → pas ici.
+    if (revert && id) send({ type: "adjust", id, adjust: null });
+    setRetouching(false);
+    setConfirming(false);
+    setCommitting(false);
+    setRetouchTarget(null);
+  }
+
+  function onSlider(key: keyof Adjust, value: number) {
+    const id = retouchTarget?.id;
+    const next = { ...radjust, [key]: value };
+    setRadjust(next);
+    if (id) sendAdjustThrottled(id, next);
+  }
+
+  function resetAdjust() {
+    const id = retouchTarget?.id;
+    setRadjust(ZERO_ADJUST);
+    if (id) sendAdjustThrottled(id, ZERO_ADJUST); // identité → projecteur revient à l'original
+  }
+
+  function doOverwrite() {
+    const id = retouchTarget?.id;
+    if (!id) return;
+    setConfirming(false);
+    setRetouchError(null);
+    setCommitting(true);
+    send({ type: "retouch", id, adjust: radjust });
+    // Filet de sécurité si la régie ne répond pas (onglet fermé…) : rendre la main.
+    if (commitTimer.current) clearTimeout(commitTimer.current);
+    commitTimer.current = setTimeout(() => {
+      commitTimer.current = null;
+      setCommitting(false);
+      setRetouchError("Pas de réponse de la régie. Réessaie.");
+    }, 40000);
   }
 
   if (!joined) {
@@ -155,6 +269,118 @@ export function RemoteControl() {
               Connecter
             </button>
           </form>
+        </div>
+      </main>
+    );
+  }
+
+  if (retouching) {
+    const cur = retouchTarget;
+    const dirty = isAdjusted(radjust);
+    return (
+      <main className="flex min-h-dvh flex-col bg-zinc-950 p-4 text-zinc-100">
+        <div className="mb-3 flex items-center justify-between">
+          <span className="text-sm font-semibold">Retoucher (projeté en direct)</span>
+          <button
+            type="button"
+            onClick={() => closeRetouch(true)}
+            className="rounded-lg border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 transition-colors active:bg-zinc-900"
+          >
+            Fermer ✕
+          </button>
+        </div>
+
+        <AdjustFilter a={radjust} id={phoneFilterId} />
+        <div className="mb-3 flex flex-1 items-center justify-center overflow-hidden rounded-xl border border-zinc-800 bg-black">
+          {cur?.id ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={`/api/files/${cur.id}?inline=1`}
+              alt={cur.name}
+              style={{ filter: `url(#${phoneFilterId})` }}
+              className="max-h-[42vh] max-w-full object-contain"
+            />
+          ) : (
+            <p className="text-sm text-zinc-600">Aucune image</p>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+          {SLIDERS.map((s) => (
+            <label key={s.key} className="flex flex-col gap-0.5">
+              <span className="flex items-center justify-between text-[11px] text-zinc-400">
+                <span>{s.label}</span>
+                <span className="tabular-nums text-zinc-500">
+                  {radjust[s.key] > 0 ? `+${radjust[s.key]}` : radjust[s.key]}
+                </span>
+              </span>
+              <input
+                type="range"
+                min={-100}
+                max={100}
+                value={radjust[s.key]}
+                disabled={committing}
+                onChange={(e) => onSlider(s.key, Number(e.target.value))}
+                className="w-full accent-zinc-300 disabled:opacity-50"
+              />
+            </label>
+          ))}
+        </div>
+
+        <div className="mt-4">
+          {committing ? (
+            <p className="rounded-xl border border-zinc-800 px-4 py-3 text-center text-sm text-zinc-400">
+              Enregistrement…
+            </p>
+          ) : !confirming ? (
+            <>
+              {retouchError && (
+                <p className="mb-2 text-center text-sm text-red-400">
+                  {retouchError}
+                </p>
+              )}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={!dirty}
+                  onClick={resetAdjust}
+                  className="rounded-xl border border-zinc-700 px-4 py-3 text-sm text-zinc-200 transition-colors active:bg-zinc-900 disabled:opacity-40"
+                >
+                  Réinitialiser
+                </button>
+                <button
+                  type="button"
+                  disabled={!dirty}
+                  onClick={() => setConfirming(true)}
+                  className="flex-1 rounded-xl border border-zinc-700 px-4 py-3 text-sm font-medium text-red-300 transition-colors hover:border-red-900 active:bg-zinc-900 disabled:opacity-40"
+                >
+                  Écraser l&apos;original
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="rounded-xl border border-red-900 bg-red-950/40 p-3">
+              <p className="mb-2 text-center text-sm text-zinc-200">
+                Écraser définitivement l&apos;original ? (irréversible)
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirming(false)}
+                  className="flex-1 rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-200"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  onClick={doOverwrite}
+                  className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white"
+                >
+                  Écraser
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </main>
     );
@@ -267,6 +493,17 @@ export function RemoteControl() {
           />
         </div>
       </div>
+
+      {/* Retouche (aperçu projeté en direct) — seulement sur une image */}
+      {state?.editable && (
+        <button
+          type="button"
+          onClick={openRetouch}
+          className="mb-3 rounded-xl border border-zinc-700 px-4 py-3 text-sm text-zinc-200 transition-colors active:bg-zinc-900"
+        >
+          Retoucher l&apos;image ✎
+        </button>
+      )}
 
       {/* Écran noir */}
       <button
