@@ -46,6 +46,8 @@ export type ProjectionMessage =
    * préchargés (figés). `v` = jeton de cache-bust.
    */
   | { type: "reload"; id: string; v: number }
+  /** régie → public : écran noir on/off (coupe l'image, ex. entre deux tableaux). */
+  | { type: "black"; on: boolean }
   /** régie → public : ferme-toi. */
   | { type: "close" }
   /** public → régie : je me ferme (l'opérateur saura que l'écran est parti). */

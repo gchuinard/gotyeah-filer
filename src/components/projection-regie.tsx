@@ -6,6 +6,7 @@ import {
   type ProjectionMessage,
   type PublicFile,
 } from "@/lib/projection-channel";
+import { type RemoteMsg } from "@/lib/remote-protocol";
 import { PresenterTimer } from "@/components/presenter-timer";
 
 type Progress = { ready: number; total: number; failed: number };
@@ -56,6 +57,10 @@ export function ProjectionRegie({
   // Cache-bust après écrasement d'une image (« reload ») : rafraîchit l'aperçu
   // de la régie (octets remplacés) — symétrique de la fenêtre publique.
   const [bustMap, setBustMap] = useState<Map<string, number>>(() => new Map());
+  // Télécommande (pilotage depuis le téléphone via relais SSE) : code d'appairage
+  // (null = inactive) + état « écran noir » (relayé à la fenêtre publique).
+  const [remoteCode, setRemoteCode] = useState<string | null>(null);
+  const [black, setBlack] = useState(false);
 
   const chanRef = useRef<BroadcastChannel | null>(null);
   const publicWinRef = useRef<Window | null>(null);
@@ -67,12 +72,18 @@ export function ProjectionRegie({
   const onIndexRef = useRef(onIndex);
   const onCloseRef = useRef(onClose);
   const pausedRef = useRef(paused);
+  // Miroirs pour la télécommande (lus dans les listeners SSE / le push d'état).
+  const codeRef = useRef<string | null>(null);
+  const blackRef = useRef(false);
+  const remoteClientRef = useRef("");
   useEffect(() => {
     filesRef.current = files;
     indexRef.current = index;
     onIndexRef.current = onIndex;
     onCloseRef.current = onClose;
     pausedRef.current = paused;
+    codeRef.current = remoteCode;
+    blackRef.current = black;
   });
   // Dernière position diffusée : évite l'écho (public → régie → public).
   const lastIdxRef = useRef(-1);
@@ -194,6 +205,80 @@ export function ProjectionRegie({
     if (ni !== cur) onIndexRef.current(ni);
   }, []);
 
+  // — Télécommande : pousse l'état courant (image, suivante, position, noir) —
+  const pushState = useCallback(() => {
+    const code = codeRef.current;
+    if (!code) return;
+    const fs = filesRef.current;
+    const idx = indexRef.current;
+    const cur = fs[idx] ?? null;
+    const nx = idx < fs.length - 1 ? fs[idx + 1] : null;
+    const msg: RemoteMsg = {
+      type: "state",
+      index: idx,
+      total: fs.length,
+      current: cur ? { id: cur.id, name: cur.original_name } : null,
+      next: nx ? { id: nx.id, name: nx.original_name } : null,
+      black: blackRef.current,
+    };
+    fetch("/api/projection/cmd", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code, from: remoteClientRef.current, msg }),
+    }).catch(() => {});
+  }, []);
+
+  // Reçoit les commandes du téléphone (SSE) : navigation + écran noir.
+  useEffect(() => {
+    if (!remoteCode) return;
+    const es = new EventSource(`/api/projection/stream?code=${remoteCode}`);
+    es.onmessage = (e) => {
+      let msg: {
+        type?: string;
+        clientId?: string;
+        dir?: 1 | -1;
+        index?: number;
+        on?: boolean;
+      };
+      try {
+        msg = JSON.parse(e.data);
+      } catch {
+        return;
+      }
+      if (msg.type === "hello") {
+        remoteClientRef.current = msg.clientId ?? "";
+        pushState();
+      } else if (msg.type === "go") {
+        go(msg.dir === -1 ? -1 : 1);
+      } else if (msg.type === "goto" && typeof msg.index === "number") {
+        const m = filesRef.current.length - 1;
+        if (m >= 0) onIndexRef.current(Math.min(Math.max(msg.index, 0), m));
+      } else if (msg.type === "black") {
+        setBlack(!!msg.on);
+      } else if (msg.type === "request-state") {
+        pushState();
+      }
+    };
+    return () => es.close();
+  }, [remoteCode, go, pushState]);
+
+  // Pousse l'état au téléphone à chaque changement (position / liste / noir).
+  // Attend que le `hello` SSE ait posé le clientId — sinon le push partirait avec
+  // from="" et serait rediffusé à TOUT le monde (la régie incluse → écho). Le
+  // `hello` pousse déjà le 1er état ; cet effet ne couvre que les changements suivants.
+  useEffect(() => {
+    if (!remoteCode || !remoteClientRef.current) return;
+    pushState();
+  }, [remoteCode, index, filesKey, black, pushState]);
+
+  // Relaie l'écran noir à la fenêtre publique (BroadcastChannel).
+  useEffect(() => {
+    chanRef.current?.postMessage({
+      type: "black",
+      on: black,
+    } satisfies ProjectionMessage);
+  }, [black]);
+
   // Clavier : ←/→ navigue, Échap quitte le mode présentateur. Inactif pendant
   // la saisie des notes (sinon les flèches déplaceraient le curseur ET l'image).
   useEffect(() => {
@@ -216,6 +301,9 @@ export function ProjectionRegie({
       } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
         e.preventDefault();
         go(-1);
+      } else if (e.key === "b" || e.key === "B") {
+        e.preventDefault();
+        setBlack((v) => !v);
       } else if (e.key === "Escape") {
         e.preventDefault();
         onCloseRef.current();
@@ -276,6 +364,11 @@ export function ProjectionRegie({
     } satisfies ProjectionMessage);
   }
 
+  function activateRemote() {
+    // Code d'appairage à 4 chiffres (Math.random dans un handler : hors render, OK).
+    setRemoteCode(String(Math.floor(1000 + Math.random() * 9000)));
+  }
+
   const done = progress.ready + progress.failed;
   const pct = progress.total > 0 ? Math.round((done / progress.total) * 100) : 0;
   const preloadDone = progress.total > 0 && done >= progress.total;
@@ -320,6 +413,11 @@ export function ProjectionRegie({
             >
               Retoucher ✎
             </button>
+          )}
+          {black && (
+            <div className="absolute inset-0 z-[5] flex items-center justify-center bg-black/80 text-sm font-medium uppercase tracking-wide text-zinc-500">
+              Écran noir
+            </div>
           )}
           {current ? (
             isImageFile(current) ? (
@@ -393,6 +491,45 @@ export function ProjectionRegie({
             )}
           </div>
 
+          {/* Télécommande (piloter depuis le téléphone) */}
+          <div className="rounded-xl border border-zinc-800 p-3">
+            {!remoteCode ? (
+              <>
+                <button
+                  type="button"
+                  onClick={activateRemote}
+                  className="w-full rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-200 transition-colors hover:bg-zinc-900"
+                >
+                  📱 Activer la télécommande
+                </button>
+                <p className="mt-2 text-xs text-zinc-500">
+                  Pilote la projection (◀ ▶, écran noir) depuis ton téléphone.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-xs font-medium text-zinc-500">Télécommande</p>
+                <p className="mt-1 text-sm text-zinc-300">
+                  Sur ton téléphone (même connexion admin), ouvre{" "}
+                  <span className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-xs text-zinc-200">
+                    …/admin/remote
+                  </span>{" "}
+                  et tape le code :
+                </p>
+                <p className="my-2 text-center text-3xl font-semibold tracking-[0.3em] tabular-nums text-zinc-100">
+                  {remoteCode}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setRemoteCode(null)}
+                  className="w-full rounded-lg border border-zinc-800 px-3 py-1.5 text-xs text-zinc-400 transition-colors hover:bg-zinc-900"
+                >
+                  Désactiver
+                </button>
+              </>
+            )}
+          </div>
+
           {/* Chrono */}
           <PresenterTimer index={index} />
 
@@ -460,7 +597,7 @@ export function ProjectionRegie({
             </button>
           </div>
           <p className="text-center text-[11px] text-zinc-600">
-            ←/→ naviguer · Échap quitter
+            ←/→ naviguer · B écran noir · Échap quitter
           </p>
         </div>
       </div>

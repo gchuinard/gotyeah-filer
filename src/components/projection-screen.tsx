@@ -40,6 +40,8 @@ export function ProjectionScreen() {
   // Cache-bust après écrasement (« reload ») : force le rechargement des octets
   // frais, en contournant le blob préchargé (figé) et le cache HTTP.
   const [bustMap, setBustMap] = useState<Map<string, number>>(() => new Map());
+  // Écran noir (commandé par la régie / la télécommande) : coupe l'image.
+  const [black, setBlack] = useState(false);
   const filterId = `proj-${useId().replace(/:/g, "")}`;
 
   const chanRef = useRef<BroadcastChannel | null>(null);
@@ -95,6 +97,8 @@ export function ProjectionScreen() {
         setLiveAdjust(msg.adjust ? { id: msg.id, adjust: msg.adjust } : null);
       } else if (msg.type === "reload") {
         setBustMap((prev) => new Map(prev).set(msg.id, msg.v));
+      } else if (msg.type === "black") {
+        setBlack(msg.on);
       } else if (msg.type === "close") {
         window.close();
       }
@@ -217,6 +221,8 @@ export function ProjectionScreen() {
       {filterOn && liveAdjust && (
         <AdjustFilter a={liveAdjust.adjust} id={filterId} />
       )}
+      {/* Écran noir : coupe tout (au-dessus de l'image et de l'invite plein écran). */}
+      {black && <div className="absolute inset-0 z-20 bg-black" />}
       {current ? (
         current.mime?.startsWith("image/") ? (
           <FadeImage
