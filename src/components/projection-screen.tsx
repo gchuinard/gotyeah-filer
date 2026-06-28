@@ -221,15 +221,25 @@ export function ProjectionScreen() {
         <p className="text-sm text-zinc-600">En attente de la régie…</p>
       )}
 
-      {/* Invite à passer en plein écran (geste utilisateur requis). Masqué une
-          fois en plein écran réel → aucun chrome par-dessus l'image. */}
+      {/* Invite à passer en plein écran (geste utilisateur requis). TOUTE la
+          fenêtre est cliquable : l'opérateur ne voit pas le projecteur → il ne
+          doit pas viser un petit bouton, un clic n'importe où sur cet écran
+          suffit. Masqué une fois en plein écran réel → aucun chrome sur l'image. */}
       {fsSupported && !isFs && (
         <button
           type="button"
           onClick={goFullscreen}
-          className="absolute bottom-4 right-4 rounded-lg border border-white/20 bg-black/50 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-black/80"
+          aria-label="Passer en plein écran"
+          className="absolute inset-0 z-10 flex cursor-pointer flex-col items-center justify-center bg-black/30 text-center transition-colors hover:bg-black/20"
         >
-          Plein écran ⤢
+          <span className="rounded-2xl border border-white/15 bg-black/70 px-6 py-4 shadow-2xl">
+            <span className="block text-2xl font-semibold text-zinc-100 sm:text-3xl">
+              ▶ Cliquez pour projeter en plein écran
+            </span>
+            <span className="mt-1 block text-sm text-zinc-300">
+              Cliquez n&apos;importe où sur cet écran · ou touche F
+            </span>
+          </span>
         </button>
       )}
     </div>
