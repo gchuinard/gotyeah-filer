@@ -136,3 +136,5 @@
       par room (`getLastState`/`setLastState`), exposé par **`GET /api/projection/state`** ; le tél
       le **poll (~2,5 s) tant que son SSE n'est pas `open`** (`applyState` factorisé) → l'affichage
       se remet à jour même SSE coincé ; temps réel repris au retour du SSE.
+      Durcissements (revue) : `lastState` borné (plafond LRU ~50), `GET /state` en **204** si
+      vide, et ré-ancrage du chrono **seulement si l'instantané change** (plus de saut arrière).
