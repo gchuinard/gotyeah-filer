@@ -91,3 +91,11 @@
       (colonne `files.note`, éditables en présentateur ET dans l'explorateur ; pas sur l'écran public).
       Réalisé en phases : A (régie + fenêtre synchronisées), B (notes + chrono), D (finitions
       + docs). **Phase C (parité invité) volontairement non faite.**
+- [x] **Retours « épreuve du feu » (1er gala)** — deux irritants corrigés :
+      1. **Plein écran public en un clic** : toute la fenêtre public est cliquable (overlay
+         plein cadre + message central) → plus besoin de viser un petit bouton à l'aveugle
+         sur le projecteur ; la régie `focus()` la fenêtre pour que la touche F marche aussi.
+      2. **Retouche accessible depuis la régie** : bouton « Retoucher » sur l'aperçu → ouvre
+         l'`ImageEditor` existant en modale (z-[80] > régie z-[70]) ; « Enregistrer sous… »
+         crée une **copie** sans changer l'image projetée ; clavier régie neutralisé pendant
+         l'édition (prop `paused`).
