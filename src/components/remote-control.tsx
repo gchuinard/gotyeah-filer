@@ -78,6 +78,23 @@ export function RemoteControl() {
     }).catch(() => {});
   }, []);
 
+  // Applique un état reçu (par SSE ou par le repli polling).
+  const applyState = useCallback((s: Partial<RemoteState>) => {
+    const t = Date.now();
+    setTimerRecvAt(t);
+    setNow(t);
+    setState({
+      index: s.index ?? 0,
+      total: s.total ?? 0,
+      current: s.current ?? null,
+      next: s.next ?? null,
+      black: !!s.black,
+      note: s.note ?? "",
+      timer: s.timer ?? { totalMs: 0, slideMs: 0, running: false },
+      editable: !!s.editable,
+    });
+  }, []);
+
   // Connexion SSE (réception de l'état) une fois le code saisi.
   useEffect(() => {
     if (!joined) return;
@@ -110,24 +127,38 @@ export function RemoteControl() {
           setRetouchError("Échec de l'écrasement. Réessaie.");
         }
       } else if (msg.type === "state") {
-        const t = Date.now();
-        setTimerRecvAt(t);
-        setNow(t);
-        setState({
-          index: msg.index ?? 0,
-          total: msg.total ?? 0,
-          current: msg.current ?? null,
-          next: msg.next ?? null,
-          black: !!msg.black,
-          note: msg.note ?? "",
-          timer: msg.timer ?? { totalMs: 0, slideMs: 0, running: false },
-          editable: !!msg.editable,
-        });
+        applyState(msg);
       }
     };
     es.onerror = () => setConn("error"); // EventSource se reconnecte tout seul.
     return () => es.close();
-  }, [joined, send]);
+  }, [joined, send, applyState]);
+
+  // Repli polling : si le flux SSE est dégradé (pas « open »), on va chercher le
+  // dernier état en HTTP simple (qui passe quand le SSE est coincé) → l'affichage
+  // ne gèle plus. Le temps réel reprend dès que le SSE redevient « open ».
+  useEffect(() => {
+    if (!joined || conn === "open") return;
+    let alive = true;
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/projection/state?code=${codeRef.current}`);
+        if (!res.ok || !alive) return;
+        const text = await res.text();
+        if (!text || !alive) return;
+        const s = JSON.parse(text) as { type?: string } & Partial<RemoteState>;
+        if (s.type === "state") applyState(s);
+      } catch {
+        /* réseau KO — on retentera au prochain tick */
+      }
+    };
+    void poll();
+    const id = setInterval(() => void poll(), 2500);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [joined, conn, applyState]);
 
   // Tique chaque seconde tant que le chrono tourne (affichage extrapolé).
   const running = state?.timer.running ?? false;

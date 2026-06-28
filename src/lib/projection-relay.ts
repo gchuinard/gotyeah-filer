@@ -9,9 +9,24 @@ type Sub = { id: string; enqueue: (sse: string) => void };
 
 const g = globalThis as unknown as {
   __projectionRooms?: Map<string, Set<Sub>>;
+  __projectionState?: Map<string, string>;
 };
 function rooms(): Map<string, Set<Sub>> {
   return (g.__projectionRooms ??= new Map<string, Set<Sub>>());
+}
+// Dernier état (JSON) connu par room : sert de repli en polling au téléphone
+// quand son flux SSE est dégradé (les POST/GET passent, le SSE non).
+function lastStates(): Map<string, string> {
+  return (g.__projectionState ??= new Map<string, string>());
+}
+
+/** Mémorise le dernier état d'une room (poussé par la régie). */
+export function setLastState(code: string, payloadJson: string): void {
+  lastStates().set(code, payloadJson);
+}
+/** Dernier état connu d'une room (ou null). */
+export function getLastState(code: string): string | null {
+  return lastStates().get(code) ?? null;
 }
 
 /** Abonne un client à une room ; renvoie la fonction de désabonnement. */
@@ -27,7 +42,10 @@ export function subscribe(code: string, sub: Sub): () => void {
     const s = rooms().get(code);
     if (!s) return;
     s.delete(sub);
-    if (s.size === 0) rooms().delete(code);
+    if (s.size === 0) {
+      rooms().delete(code);
+      lastStates().delete(code); // plus personne dans la room → on oublie l'état
+    }
   };
 }
 

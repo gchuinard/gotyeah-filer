@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { getSession } from "@/lib/auth";
-import { publish } from "@/lib/projection-relay";
+import { publish, setLastState } from "@/lib/projection-relay";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,6 +27,9 @@ export async function POST(request: NextRequest) {
   if (!/^\d{4,6}$/.test(code) || !msg || typeof msg !== "object") {
     return Response.json({ error: "Requête invalide." }, { status: 400 });
   }
-  publish(code, from, JSON.stringify(msg));
+  const payload = JSON.stringify(msg);
+  // Mémorise le dernier état pour le repli polling du téléphone (SSE dégradé).
+  if ((msg as { type?: unknown }).type === "state") setLastState(code, payload);
+  publish(code, from, payload);
   return new Response(null, { status: 204 });
 }
