@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { clockElapsed, type Clock } from "@/lib/use-presenter-timer";
 
 /** Formate une durée en h:mm:ss (heures masquées si nulles). */
 function fmt(ms: number): string {
@@ -12,74 +13,38 @@ function fmt(ms: number): string {
   return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${pad(m)}:${pad(sec)}`;
 }
 
-/** Horloge : cumul figé (`base`) + instant de reprise (`since`, `null` = pause). */
-type Clock = { base: number; since: number | null };
-function elapsed(c: Clock, now: number): number {
-  return c.base + (c.since != null ? now - c.since : 0);
-}
-
 /**
- * Chrono du mode présentateur : temps TOTAL écoulé + temps sur l'IMAGE courante
- * (remis à zéro à chaque changement, sans toucher au total). Pause / reprise /
- * remise à zéro. Ancré sur des timestamps (pas de dérive). Démarre
- * automatiquement (la présentation commence à l'ouverture de la régie).
+ * Affichage du chrono du présentateur (régie). L'état (horloges) vient de
+ * `usePresenterTimer` chez le parent ; ce composant ne fait que TIQUER pour
+ * afficher l'écoulé (re-render isolé ici, pas dans la régie) et exposer les
+ * boutons pause/reprise/reset.
  */
-export function PresenterTimer({ index }: { index: number }) {
-  const [running, setRunning] = useState(true);
+export function PresenterTimer({
+  total,
+  slide,
+  running,
+  onToggle,
+  onReset,
+}: {
+  total: Clock;
+  slide: Clock;
+  running: boolean;
+  onToggle: () => void;
+  onReset: () => void;
+}) {
   // Instant courant, rafraîchi ~4×/s tant que ça tourne. Lu pendant le render à
   // la place de Date.now() (interdit pendant le render : règle react-hooks/purity).
   const [now, setNow] = useState(() => Date.now());
-  const [total, setTotal] = useState<Clock>(() => ({
-    base: 0,
-    since: Date.now(),
-  }));
-  const [slide, setSlide] = useState<Clock>(() => ({
-    base: 0,
-    since: Date.now(),
-  }));
-
   useEffect(() => {
+    const tick = () => setNow(Date.now());
+    tick(); // resync immédiat sur changement d'état (pause/reprise/image)
     if (!running) return;
-    const t = setInterval(() => setNow(Date.now()), 250);
+    const t = setInterval(tick, 250);
     return () => clearInterval(t);
-  }, [running]);
+  }, [running, total, slide]);
 
-  // Changement d'image → chrono « image » à zéro (le total continue).
-  useEffect(() => {
-    const reset = () => {
-      const t = Date.now();
-      setSlide({ base: 0, since: running ? t : null });
-      setNow(t);
-    };
-    reset();
-    // `running` lu à l'instant du changement, pas une dépendance (sinon on
-    // remettrait le chrono image à zéro à chaque pause/reprise).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [index]);
-
-  function toggle() {
-    const t = Date.now();
-    if (running) {
-      setTotal((c) => ({ base: elapsed(c, t), since: null }));
-      setSlide((c) => ({ base: elapsed(c, t), since: null }));
-    } else {
-      setTotal((c) => ({ ...c, since: t }));
-      setSlide((c) => ({ ...c, since: t }));
-    }
-    setNow(t);
-    setRunning((r) => !r);
-  }
-
-  function resetAll() {
-    const t = Date.now();
-    const since = running ? t : null;
-    setTotal({ base: 0, since });
-    setSlide({ base: 0, since });
-    setNow(t);
-  }
-
-  const totalMs = elapsed(total, now);
-  const slideMs = elapsed(slide, now);
+  const totalMs = clockElapsed(total, now);
+  const slideMs = clockElapsed(slide, now);
 
   return (
     <div className="rounded-xl border border-zinc-800 p-3">
@@ -88,14 +53,14 @@ export function PresenterTimer({ index }: { index: number }) {
         <div className="flex items-center gap-1.5">
           <button
             type="button"
-            onClick={toggle}
+            onClick={onToggle}
             className="rounded-md border border-zinc-700 px-2 py-1 text-xs text-zinc-300 transition-colors hover:bg-zinc-900"
           >
             {running ? "Pause" : "Reprendre"}
           </button>
           <button
             type="button"
-            onClick={resetAll}
+            onClick={onReset}
             className="rounded-md border border-zinc-700 px-2 py-1 text-xs text-zinc-300 transition-colors hover:bg-zinc-900"
           >
             Reset

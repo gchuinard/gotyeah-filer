@@ -606,6 +606,7 @@ export function FileBrowser({
           onEdit={() => {
             if (canEdit && selected) setPresenterEditId(selected.id);
           }}
+          onNoteById={(id, v) => setNote(id, v)}
           paused={!!presenterEditId}
           onClose={() => setPresenter(false)}
         />

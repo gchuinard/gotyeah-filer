@@ -8,6 +8,11 @@ import {
 } from "@/lib/projection-channel";
 import { type RemoteMsg } from "@/lib/remote-protocol";
 import { PresenterTimer } from "@/components/presenter-timer";
+import {
+  clockElapsed,
+  usePresenterTimer,
+  type Clock,
+} from "@/lib/use-presenter-timer";
 
 type Progress = { ready: number; total: number; failed: number };
 
@@ -33,6 +38,7 @@ export function ProjectionRegie({
   onNote,
   onClose,
   onEdit,
+  onNoteById,
   paused = false,
 }: {
   files: PublicFile[];
@@ -44,6 +50,8 @@ export function ProjectionRegie({
   onClose: () => void;
   /** Ouvre l'éditeur de retouche sur l'image courante (le parent gère la modale). */
   onEdit?: () => void;
+  /** Édite la note d'un fichier précis (commande de la télécommande). */
+  onNoteById?: (id: string, value: string) => void;
   /** Neutralise le clavier de la régie (ex. pendant l'édition de retouche). */
   paused?: boolean;
 }) {
@@ -62,6 +70,18 @@ export function ProjectionRegie({
   const [remoteCode, setRemoteCode] = useState<string | null>(null);
   const [black, setBlack] = useState(false);
 
+  // Chrono du présentateur (état partagé) : la régie l'affiche, le pilote, et en
+  // pousse un instantané à la télécommande. Destructuré en locaux (les callbacks
+  // sont stables) pour des dépendances d'effet propres.
+  const timer = usePresenterTimer(index);
+  const {
+    total: timerTotal,
+    slide: timerSlide,
+    running: timerRunning,
+    toggle: timerToggle,
+    resetAll: timerReset,
+  } = timer;
+
   const chanRef = useRef<BroadcastChannel | null>(null);
   const publicWinRef = useRef<Window | null>(null);
 
@@ -76,6 +96,11 @@ export function ProjectionRegie({
   const codeRef = useRef<string | null>(null);
   const blackRef = useRef(false);
   const remoteClientRef = useRef("");
+  const noteRef = useRef("");
+  const totalRef = useRef<Clock>({ base: 0, since: null });
+  const slideRef = useRef<Clock>({ base: 0, since: null });
+  const runningRef = useRef(false);
+  const onNoteByIdRef = useRef(onNoteById);
   useEffect(() => {
     filesRef.current = files;
     indexRef.current = index;
@@ -84,6 +109,11 @@ export function ProjectionRegie({
     pausedRef.current = paused;
     codeRef.current = remoteCode;
     blackRef.current = black;
+    noteRef.current = note;
+    totalRef.current = timerTotal;
+    slideRef.current = timerSlide;
+    runningRef.current = timerRunning;
+    onNoteByIdRef.current = onNoteById;
   });
   // Dernière position diffusée : évite l'écho (public → régie → public).
   const lastIdxRef = useRef(-1);
@@ -213,6 +243,7 @@ export function ProjectionRegie({
     const idx = indexRef.current;
     const cur = fs[idx] ?? null;
     const nx = idx < fs.length - 1 ? fs[idx + 1] : null;
+    const now = Date.now();
     const msg: RemoteMsg = {
       type: "state",
       index: idx,
@@ -220,6 +251,12 @@ export function ProjectionRegie({
       current: cur ? { id: cur.id, name: cur.original_name } : null,
       next: nx ? { id: nx.id, name: nx.original_name } : null,
       black: blackRef.current,
+      note: noteRef.current,
+      timer: {
+        totalMs: clockElapsed(totalRef.current, now),
+        slideMs: clockElapsed(slideRef.current, now),
+        running: runningRef.current,
+      },
     };
     fetch("/api/projection/cmd", {
       method: "POST",
@@ -239,6 +276,9 @@ export function ProjectionRegie({
         dir?: 1 | -1;
         index?: number;
         on?: boolean;
+        id?: string;
+        value?: string;
+        action?: string;
       };
       try {
         msg = JSON.parse(e.data);
@@ -255,12 +295,21 @@ export function ProjectionRegie({
         if (m >= 0) onIndexRef.current(Math.min(Math.max(msg.index, 0), m));
       } else if (msg.type === "black") {
         setBlack(!!msg.on);
+      } else if (
+        msg.type === "note" &&
+        typeof msg.id === "string" &&
+        typeof msg.value === "string"
+      ) {
+        onNoteByIdRef.current?.(msg.id, msg.value);
+      } else if (msg.type === "timer") {
+        if (msg.action === "toggle") timerToggle();
+        else if (msg.action === "reset") timerReset();
       } else if (msg.type === "request-state") {
         pushState();
       }
     };
     return () => es.close();
-  }, [remoteCode, go, pushState]);
+  }, [remoteCode, go, pushState, timerToggle, timerReset]);
 
   // Pousse l'état au téléphone à chaque changement (position / liste / noir).
   // Attend que le `hello` SSE ait posé le clientId — sinon le push partirait avec
@@ -269,7 +318,17 @@ export function ProjectionRegie({
   useEffect(() => {
     if (!remoteCode || !remoteClientRef.current) return;
     pushState();
-  }, [remoteCode, index, filesKey, black, pushState]);
+  }, [
+    remoteCode,
+    index,
+    filesKey,
+    black,
+    note,
+    timerTotal,
+    timerSlide,
+    timerRunning,
+    pushState,
+  ]);
 
   // Relaie l'écran noir à la fenêtre publique (BroadcastChannel).
   useEffect(() => {
@@ -531,7 +590,13 @@ export function ProjectionRegie({
           </div>
 
           {/* Chrono */}
-          <PresenterTimer index={index} />
+          <PresenterTimer
+            total={timerTotal}
+            slide={timerSlide}
+            running={timerRunning}
+            onToggle={timerToggle}
+            onReset={timerReset}
+          />
 
           {/* Notes — bloc-notes local (par image, sur ce navigateur) */}
           <div className="rounded-xl border border-zinc-800 p-3">
