@@ -110,3 +110,10 @@
          Cache-bust (`reload`) pour rafraîchir projecteur/régie/explorateur (blobs préchargés figés).
       3. Disponible **partout** (explorateur + présentateur). Exception **assumée** à la règle
          « retouche non-destructive » : seul l'écrasement explicite et confirmé touche l'original.
+- [x] **Télécommande mobile** (admin) : piloter la projection **depuis le téléphone** (◀ ▶,
+      **écran noir**, vignette « suivante »). `BroadcastChannel` ne traversant pas les appareils →
+      **relais serveur en mémoire** (SSE `GET /api/projection/stream` + `POST /api/projection/cmd`,
+      protocole `src/lib/remote-protocol.ts`, relais `src/lib/projection-relay.ts`), **room** =
+      code d'appairage 4 chiffres affiché par la régie ; page `/admin/remote`. Le téléphone pilote
+      la régie, qui mène l'écran public (nouveau message `black` + touche **B**). En-têtes SSE
+      anti-buffering pour NPM/Cloudflare (repli polling possible si bufferisé).
