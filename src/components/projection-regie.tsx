@@ -23,6 +23,10 @@ function isImageFile(f: PublicFile): boolean {
   return !!f.mime?.startsWith("image/");
 }
 
+/** Seuil d'inactivité du SSE entrant (ms) au-delà duquel la liaison télécommande
+ * est considérée figée (« mort mais ouvert »). > 2× le keep-alive serveur (15 s). */
+const STALE_MS = 35000;
+
 /**
  * Console RÉGIE du mode présentateur (sur l'écran de l'opérateur). Affiche
  * l'image courante + la suivante + les contrôles, et pilote la fenêtre PUBLIC
@@ -75,6 +79,14 @@ export function ProjectionRegie({
   // (null = inactive) + état « écran noir » (relayé à la fenêtre publique).
   const [remoteCode, setRemoteCode] = useState<string | null>(null);
   const [black, setBlack] = useState(false);
+  // Liaison télécommande (SSE entrant) : indicateur + watchdog de liveness. Le SSE
+  // de la régie peut se figer « mort mais ouvert » sans onerror → elle cesserait
+  // de recevoir les commandes du téléphone SANS aucun signal. `remoteReconnectN`
+  // force la recréation du flux.
+  const [remoteLink, setRemoteLink] = useState<"connecting" | "live" | "stale">(
+    "connecting",
+  );
+  const [remoteReconnectN, setRemoteReconnectN] = useState(0);
   // Retouche LIVE venue de la télécommande : réglage appliqué à l'aperçu courant
   // (et rediffusé à la fenêtre publique). Lié à un `id` pour ne pas déborder.
   const [liveAdjust, setLiveAdjust] = useState<{
@@ -109,6 +121,9 @@ export function ProjectionRegie({
   const codeRef = useRef<string | null>(null);
   const blackRef = useRef(false);
   const remoteClientRef = useRef("");
+  const remoteEsRef = useRef<EventSource | null>(null);
+  // Instant du dernier message SSE reçu (ping serveur compris) → watchdog régie.
+  const lastRemoteMsgRef = useRef(0);
   const noteRef = useRef("");
   const totalRef = useRef<Clock>({ base: 0, since: null });
   const slideRef = useRef<Clock>({ base: 0, since: null });
@@ -363,8 +378,16 @@ export function ProjectionRegie({
   // Reçoit les commandes du téléphone (SSE) : navigation + écran noir + retouche.
   useEffect(() => {
     if (!remoteCode) return;
+    lastRemoteMsgRef.current = Date.now();
     const es = new EventSource(`/api/projection/stream?code=${remoteCode}`);
+    remoteEsRef.current = es;
+    es.onopen = () => {
+      lastRemoteMsgRef.current = Date.now();
+    };
+    es.onerror = () => setRemoteLink("stale");
     es.onmessage = (e) => {
+      lastRemoteMsgRef.current = Date.now();
+      setRemoteLink("live");
       let msg: {
         type?: string;
         clientId?: string;
@@ -381,6 +404,7 @@ export function ProjectionRegie({
       } catch {
         return;
       }
+      if (msg.type === "ping") return; // keep-alive de liveness (rien à appliquer)
       if (msg.type === "hello") {
         remoteClientRef.current = msg.clientId ?? "";
         pushState();
@@ -420,8 +444,47 @@ export function ProjectionRegie({
         pushState();
       }
     };
-    return () => es.close();
-  }, [remoteCode, go, pushState, timerToggle, timerReset, applyRetouch]);
+    return () => {
+      es.close();
+      remoteEsRef.current = null;
+    };
+  }, [
+    remoteCode,
+    go,
+    pushState,
+    timerToggle,
+    timerReset,
+    applyRetouch,
+    remoteReconnectN,
+  ]);
+
+  // Watchdog de liveness côté régie : son SSE entrant peut se figer « mort mais
+  // ouvert » (veille laptop, proxy) SANS onerror → elle cesserait de recevoir les
+  // commandes du téléphone sans aucun signal. Si rien reçu (ping serveur compris)
+  // depuis trop longtemps, on marque la liaison figée + on force une reconnexion.
+  useEffect(() => {
+    if (!remoteCode) return;
+    const id = setInterval(() => {
+      if (Date.now() - lastRemoteMsgRef.current > STALE_MS) {
+        setRemoteLink("stale");
+        remoteEsRef.current?.close();
+        setRemoteReconnectN((n) => n + 1);
+      }
+    }, 5000);
+    return () => clearInterval(id);
+  }, [remoteCode]);
+
+  // Heartbeat d'état : pousse périodiquement l'état même SANS changement, pour que
+  // le repli polling du téléphone (qui lit le dernier état mémorisé côté serveur)
+  // reste à jour pendant un passage statique du spectacle. Garde anti-écho : on
+  // n'émet qu'une fois le clientId posé (sinon le push partirait avec from="").
+  useEffect(() => {
+    if (!remoteCode) return;
+    const id = setInterval(() => {
+      if (remoteClientRef.current) pushState();
+    }, 10000);
+    return () => clearInterval(id);
+  }, [remoteCode, pushState]);
 
   // Pousse l'état au téléphone à chaque changement (position / liste / noir).
   // Attend que le `hello` SSE ait posé le clientId — sinon le push partirait avec
@@ -697,6 +760,18 @@ export function ProjectionRegie({
                 </p>
                 <p className="my-2 text-center text-3xl font-semibold tracking-[0.3em] tabular-nums text-zinc-100">
                   {remoteCode}
+                </p>
+                <p
+                  className={`mb-2 flex items-center justify-center gap-1.5 text-[11px] ${
+                    remoteLink === "live" ? "text-emerald-400" : "text-amber-400"
+                  }`}
+                >
+                  <span
+                    className={`size-1.5 rounded-full ${
+                      remoteLink === "live" ? "bg-emerald-500" : "bg-amber-500"
+                    }`}
+                  />
+                  {remoteLink === "live" ? "Canal connecté" : "Reconnexion du canal…"}
                 </p>
                 <button
                   type="button"

@@ -40,8 +40,16 @@ export async function GET(request: NextRequest) {
       // 1er message : l'id attribué (chacun s'exclut des diffusions via cet id).
       enqueue(`data: ${JSON.stringify({ type: "hello", clientId: id })}\n\n`);
       unsub = subscribe(code, { id, enqueue });
-      // Keep-alive : un commentaire SSE régulier garde la connexion ouverte.
-      ping = setInterval(() => enqueue(`: ping\n\n`), 20000);
+      // Keep-alive = VRAI message `data:` (et non un commentaire `: ping`, que la
+      // spec EventSource ne livre JAMAIS à `onmessage`). Côté client il sert de
+      // signal de LIVENESS : un SSE figé « mort mais ouvert » (veille mobile,
+      // bascule réseau, socket proxy demi-ouverte) ne déclenche pas `onerror` ;
+      // mesurer l'âge du dernier message reçu (ce ping compris) permet de le
+      // détecter → reconnexion forcée + repli polling. Intervalle < timeouts proxy.
+      ping = setInterval(
+        () => enqueue(`data: ${JSON.stringify({ type: "ping" })}\n\n`),
+        15000,
+      );
     },
     cancel() {
       if (ping) clearInterval(ping);

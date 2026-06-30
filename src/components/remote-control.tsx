@@ -25,6 +25,11 @@ function fmt(ms: number): string {
   return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${pad(m)}:${pad(sec)}`;
 }
 
+/** Seuil d'inactivité SSE (ms) au-delà duquel on considère le flux figé (« mort
+ * mais ouvert »). Doit rester > 2× l'intervalle de keep-alive serveur (15 s)
+ * pour éviter les faux positifs sur réseau lent. */
+const STALE_MS = 35000;
+
 /**
  * Télécommande de projection (page `/admin/remote`, à ouvrir sur le téléphone).
  * Code d'appairage → puis pilotage : ◀ ▶, écran noir, **chrono** (affiché +
@@ -38,6 +43,11 @@ export function RemoteControl() {
   const [conn, setConn] = useState<"connecting" | "open" | "error">(
     "connecting",
   );
+  // Liveness : un SSE « figé mais ouvert » ne déclenche pas onerror. On mesure
+  // l'âge du dernier message reçu (ping serveur compris) → `stale` arme le repli
+  // polling ET force une reconnexion même sans onerror ; `reconnectN` recrée le flux.
+  const [stale, setStale] = useState(false);
+  const [reconnectN, setReconnectN] = useState(0);
   const [state, setState] = useState<RemoteState | null>(null);
   // Édition locale de la note (prime sur la valeur serveur, par id d'image).
   const [noteEdits, setNoteEdits] = useState<Record<string, string>>({});
@@ -58,6 +68,9 @@ export function RemoteControl() {
 
   const clientRef = useRef("");
   const codeRef = useRef("");
+  const esRef = useRef<EventSource | null>(null);
+  // Instant du dernier message SSE reçu (ping serveur compris) → watchdog de liveness.
+  const lastMsgRef = useRef(0);
   // Note en attente d'envoi (debounce + flush au démontage).
   const pendingNote = useRef<{ id: string; value: string } | null>(null);
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -114,15 +127,23 @@ export function RemoteControl() {
   // Connexion SSE (réception de l'état) une fois le code saisi.
   useEffect(() => {
     if (!joined) return;
+    lastMsgRef.current = Date.now(); // base de fraîcheur dès l'ouverture du flux
     const es = new EventSource(`/api/projection/stream?code=${codeRef.current}`);
-    es.onopen = () => setConn("open");
+    esRef.current = es;
+    es.onopen = () => {
+      lastMsgRef.current = Date.now();
+      setConn("open");
+    };
     es.onmessage = (e) => {
+      lastMsgRef.current = Date.now();
+      setStale(false);
       let msg: { type?: string; clientId?: string; ok?: boolean } & Partial<RemoteState>;
       try {
         msg = JSON.parse(e.data);
       } catch {
         return;
       }
+      if (msg.type === "ping") return; // keep-alive de liveness (rien à appliquer)
       if (msg.type === "hello") {
         clientRef.current = msg.clientId ?? "";
         send({ type: "request-state" });
@@ -147,14 +168,19 @@ export function RemoteControl() {
       }
     };
     es.onerror = () => setConn("error"); // EventSource se reconnecte tout seul.
-    return () => es.close();
-  }, [joined, send, applyState]);
+    return () => {
+      es.close();
+      esRef.current = null;
+    };
+  }, [joined, send, applyState, reconnectN]);
 
   // Repli polling : si le flux SSE est dégradé (pas « open »), on va chercher le
   // dernier état en HTTP simple (qui passe quand le SSE est coincé) → l'affichage
   // ne gèle plus. Le temps réel reprend dès que le SSE redevient « open ».
   useEffect(() => {
-    if (!joined || conn === "open") return;
+    // Polling actif si le SSE n'est pas « open » OU s'il est figé (`stale`) : un
+    // SSE « mort mais ouvert » resterait 'open' sans rien livrer → on le couvre.
+    if (!joined || (conn === "open" && !stale)) return;
     let alive = true;
     const poll = async () => {
       try {
@@ -174,7 +200,50 @@ export function RemoteControl() {
       alive = false;
       clearInterval(id);
     };
-  }, [joined, conn, applyState]);
+  }, [joined, conn, stale, applyState]);
+
+  // Watchdog de liveness : un SSE figé ne déclenche pas onerror. Si rien n'est
+  // reçu (ping serveur compris) depuis trop longtemps, on le considère mort →
+  // `stale` (arme le polling) + reconnexion forcée (pour repartir sur une socket
+  // TCP neuve, la reconnexion native ne se déclenchant pas sur un half-open).
+  useEffect(() => {
+    if (!joined) return;
+    const id = setInterval(() => {
+      if (Date.now() - lastMsgRef.current > STALE_MS) {
+        setStale(true);
+        esRef.current?.close();
+        setReconnectN((n) => n + 1);
+      }
+    }, 5000);
+    return () => clearInterval(id);
+  }, [joined]);
+
+  // Retour au premier plan / réseau : le téléphone en veille fige le SSE sans
+  // onerror. Au réveil on resynchronise tout de suite (request-state) et, si le
+  // flux semble figé, on force une reconnexion sans attendre le watchdog.
+  useEffect(() => {
+    if (!joined) return;
+    const forceReconnect = () => {
+      setStale(true);
+      esRef.current?.close();
+      setReconnectN((n) => n + 1);
+    };
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      send({ type: "request-state" });
+      if (Date.now() - lastMsgRef.current > 4000) forceReconnect();
+    };
+    const onOnline = () => {
+      send({ type: "request-state" });
+      forceReconnect();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", onOnline);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", onOnline);
+    };
+  }, [joined, send]);
 
   // Tique chaque seconde tant que le chrono tourne (affichage extrapolé).
   const running = state?.timer.running ?? false;
@@ -434,6 +503,8 @@ export function RemoteControl() {
   }
 
   const black = state?.black ?? false;
+  // « Vivant » = SSE open ET non figé (un half-open reste 'open' mais muet).
+  const live = conn === "open" && !stale;
   const pos = state
     ? `${Math.min(state.index + 1, state.total)} / ${state.total}`
     : "—";
@@ -456,16 +527,16 @@ export function RemoteControl() {
         <span className="flex items-center gap-1.5 text-xs text-zinc-500">
           <span
             className={`size-2 rounded-full ${
-              conn === "open"
+              live
                 ? "bg-emerald-500"
-                : conn === "error"
+                : conn === "error" || stale
                   ? "bg-red-500"
                   : "bg-amber-500"
             }`}
           />
-          {conn === "open"
+          {live
             ? "connecté"
-            : conn === "error"
+            : conn === "error" || stale
               ? "reconnexion…"
               : "connexion…"}
         </span>
