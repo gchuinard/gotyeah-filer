@@ -16,6 +16,8 @@ export type FileRow = {
   download_count: number;
   /** Note libre liée au fichier (admin), ou null. */
   note: string | null;
+  /** Durée d'auto-avance en mode présentateur (ms), ou null (= pas d'auto-avance). */
+  advance_ms: number | null;
 };
 
 /** Répertoire physique des fichiers stockés. */
@@ -51,8 +53,10 @@ export function getFile(id: string): FileRow | undefined {
     | undefined;
 }
 
-/** Enregistre un fichier en base (download_count à 0 et note NULL via défaut SQL). */
-export function insertFile(row: Omit<FileRow, "download_count" | "note">): void {
+/** Enregistre un fichier en base (download_count à 0, note/advance_ms NULL par défaut). */
+export function insertFile(
+  row: Omit<FileRow, "download_count" | "note" | "advance_ms">,
+): void {
   getDb()
     .prepare(
       `INSERT INTO files (id, stored_name, original_name, size, mime, created_at, folder_id)
@@ -76,6 +80,20 @@ export function setFileNote(id: string, note: string | null): boolean {
   return (
     getDb()
       .prepare("UPDATE files SET note = ? WHERE id = ?")
+      .run(value, id).changes > 0
+  );
+}
+
+/** Met à jour la durée d'auto-avance d'un fichier (ms ; ≤ 0 ou null → efface).
+ * Bornée à 24 h pour éviter une valeur aberrante. */
+export function setFileAdvanceMs(id: string, ms: number | null): boolean {
+  const value =
+    ms != null && Number.isFinite(ms) && ms > 0
+      ? Math.min(Math.floor(ms), 24 * 60 * 60 * 1000)
+      : null;
+  return (
+    getDb()
+      .prepare("UPDATE files SET advance_ms = ? WHERE id = ?")
       .run(value, id).changes > 0
   );
 }

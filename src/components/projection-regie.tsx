@@ -16,6 +16,7 @@ import {
 import { AdjustFilter } from "@/components/adjust-filter";
 import { isAdjusted, type Adjust } from "@/lib/image-adjust";
 import { overwriteMime, renderAdjusted } from "@/lib/render-adjusted";
+import { advanceMsToSecs, advanceSecsToMs } from "@/lib/use-file-advance";
 
 type Progress = { ready: number; total: number; failed: number };
 
@@ -43,6 +44,8 @@ export function ProjectionRegie({
   onIndex,
   note,
   onNote,
+  advanceMs,
+  onAdvanceMs,
   onClose,
   onEdit,
   onNoteById,
@@ -55,6 +58,9 @@ export function ProjectionRegie({
   /** Note (en base) de l'image courante, et son éditeur (cf. `useFileNotes`). */
   note: string;
   onNote: (value: string) => void;
+  /** Durée d'auto-avance (ms) de l'image courante + son éditeur (cf. `useFileAdvance`). */
+  advanceMs?: number | null;
+  onAdvanceMs?: (ms: number | null) => void;
   onClose: () => void;
   /** Ouvre l'éditeur de retouche sur l'image courante (le parent gère la modale). */
   onEdit?: () => void;
@@ -109,6 +115,7 @@ export function ProjectionRegie({
     running: timerRunning,
     toggle: timerToggle,
     resetAll: timerReset,
+    restartSlide: timerRestartSlide,
   } = timer;
 
   const chanRef = useRef<BroadcastChannel | null>(null);
@@ -279,6 +286,27 @@ export function ProjectionRegie({
     const ni = dir > 0 ? Math.min(cur + 1, m) : Math.max(cur - 1, 0);
     if (ni !== cur) onIndexRef.current(ni);
   }, []);
+
+  // (Re)démarre le chrono « image » à l'ouverture de l'écran public, pour que
+  // l'image affichée à ce moment bénéficie de sa PLEINE durée d'auto-avance (sinon
+  // un long réglage avant d'ouvrir le projecteur la ferait sauter aussitôt).
+  useEffect(() => {
+    if (publicOpen) timerRestartSlide();
+  }, [publicOpen, timerRestartSlide]);
+
+  // Auto-avance : si l'image courante a une durée (`advanceMs`) et que le chrono
+  // « image » tourne, on passe à la suivante quand le temps PASSÉ SUR L'IMAGE
+  // atteint la durée. Réutilise `timerSlide` → respecte la pause (pause = on gèle)
+  // et se remet à zéro à chaque image. `setTimeout` sur le RESTANT (pas de polling).
+  // Ne s'arme qu'une fois l'écran public ouvert (= on projette réellement) ; stop à
+  // la dernière image (pas de boucle).
+  useEffect(() => {
+    if (!publicOpen || !advanceMs || advanceMs <= 0) return;
+    if (!timerRunning || index >= max) return;
+    const remaining = advanceMs - clockElapsed(timerSlide, Date.now());
+    const t = setTimeout(() => go(1), Math.max(0, remaining));
+    return () => clearTimeout(t);
+  }, [publicOpen, advanceMs, timerRunning, timerSlide, index, max, go]);
 
   // — Télécommande : pousse l'état courant (image, suivante, position, noir) —
   const pushState = useCallback(() => {
@@ -821,6 +849,34 @@ export function ProjectionRegie({
               }
               className="h-28 w-full resize-none rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-500 disabled:opacity-50"
             />
+          </div>
+
+          {/* Avance auto (par image, persistée en base) : passe à la suivante
+              automatiquement après ce délai pendant la projection. */}
+          <div className="rounded-xl border border-zinc-800 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-medium text-zinc-500">Avance auto</p>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  step={1}
+                  disabled={!current || !onAdvanceMs}
+                  value={advanceMsToSecs(advanceMs ?? null)}
+                  onChange={(e) =>
+                    onAdvanceMs?.(advanceSecsToMs(e.target.value))
+                  }
+                  placeholder="—"
+                  className="w-16 rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1 text-sm tabular-nums text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-500 disabled:opacity-50"
+                />
+                <span className="text-xs text-zinc-500">s</span>
+              </div>
+            </div>
+            <p className="mt-1 text-[11px] text-zinc-600">
+              Vide = manuel. Sinon passe à l&apos;image suivante après ce délai
+              (écran public ouvert ; en pause, le décompte se fige).
+            </p>
           </div>
 
           {/* Image suivante */}

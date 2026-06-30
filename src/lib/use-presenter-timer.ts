@@ -65,5 +65,13 @@ export function usePresenterTimer(index: number) {
     setSlide(zero);
   }, []);
 
-  return { total, slide, running, toggle, resetAll };
+  // Redémarre le SEUL chrono « image » à zéro (le total continue), en conservant
+  // l'état marche/pause. Sert à (re)caler l'auto-avance quand la projection
+  // démarre (ouverture de l'écran public) pour que l'image courante reparte de 0.
+  const restartSlide = useCallback(() => {
+    const t = Date.now();
+    setSlide((c) => ({ base: 0, since: c.since != null ? t : null }));
+  }, []);
+
+  return { total, slide, running, toggle, resetAll, restartSlide };
 }

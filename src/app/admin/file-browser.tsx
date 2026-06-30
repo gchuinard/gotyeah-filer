@@ -22,6 +22,11 @@ import { ProjectionPrep } from "@/components/projection-prep";
 import { ProjectionRegie } from "@/components/projection-regie";
 import { useImagePreload } from "@/lib/use-image-preload";
 import { useFileNotes } from "@/lib/use-file-notes";
+import {
+  advanceMsToSecs,
+  advanceSecsToMs,
+  useFileAdvance,
+} from "@/lib/use-file-advance";
 import { ImageEditor } from "@/components/image-editor";
 import { DeleteButton } from "@/app/admin/delete-button";
 import { MoveSelect } from "@/app/admin/move-select";
@@ -37,6 +42,7 @@ export type FileItem = {
   folder_id: string | null;
   download_count: number;
   note: string | null;
+  advance_ms: number | null;
 };
 
 type Option = { id: string; name: string };
@@ -157,6 +163,7 @@ export function FileBrowser({
   const preload = useImagePreload(visible, offline);
   // Notes par fichier persistées en base (édition optimiste + debounce).
   const { noteOf, setNote } = useFileNotes(files);
+  const { advanceOf, setAdvance } = useFileAdvance(files);
   const imageCount = visible.filter((f) =>
     f.mime?.startsWith("image/"),
   ).length;
@@ -489,20 +496,50 @@ export function FileBrowser({
               )}
             </div>
             {!editing && (
-              <div>
-                <label
-                  htmlFor="file-note"
-                  className="mb-1.5 block text-xs font-medium text-zinc-500"
-                >
-                  Note
-                </label>
-                <textarea
-                  id="file-note"
-                  value={noteOf(selected.id)}
-                  onChange={(e) => setNote(selected.id, e.target.value)}
-                  placeholder="Note libre liée à ce fichier (visible aussi en mode présentateur)…"
-                  className="h-24 w-full resize-y rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-500"
-                />
+              <div className="space-y-3">
+                <div>
+                  <label
+                    htmlFor="file-note"
+                    className="mb-1.5 block text-xs font-medium text-zinc-500"
+                  >
+                    Note
+                  </label>
+                  <textarea
+                    id="file-note"
+                    value={noteOf(selected.id)}
+                    onChange={(e) => setNote(selected.id, e.target.value)}
+                    placeholder="Note libre liée à ce fichier (visible aussi en mode présentateur)…"
+                    className="h-24 w-full resize-y rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-500"
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="file-advance"
+                    className="mb-1.5 block text-xs font-medium text-zinc-500"
+                  >
+                    Avance auto (mode présentateur)
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="file-advance"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      step={1}
+                      value={advanceMsToSecs(advanceOf(selected.id))}
+                      onChange={(e) =>
+                        setAdvance(selected.id, advanceSecsToMs(e.target.value))
+                      }
+                      placeholder="—"
+                      className="w-24 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm tabular-nums text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-500"
+                    />
+                    <span className="text-sm text-zinc-500">secondes</span>
+                  </div>
+                  <p className="mt-1 text-[11px] text-zinc-600">
+                    Vide = pas d&apos;auto-avance. En présentateur, passe à
+                    l&apos;image suivante après ce délai.
+                  </p>
+                </div>
               </div>
             )}
             {editing && canEdit ? (
@@ -602,6 +639,10 @@ export function FileBrowser({
           note={presenterFile ? noteOf(presenterFile.id) : ""}
           onNote={(v) => {
             if (presenterFile) setNote(presenterFile.id, v);
+          }}
+          advanceMs={presenterFile ? advanceOf(presenterFile.id) : null}
+          onAdvanceMs={(ms) => {
+            if (presenterFile) setAdvance(presenterFile.id, ms);
           }}
           onEdit={() => {
             if (canEdit && selected) setPresenterEditId(selected.id);

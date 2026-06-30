@@ -87,6 +87,10 @@ function createDb(): Database.Database {
   // Note libre par fichier (ajoutée après coup) : idempotente, NULL par défaut.
   ensureColumn(db, "files", "note", "TEXT");
 
+  // Durée d'auto-avance par image (ms) en mode présentateur (ajoutée après coup) :
+  // idempotente, NULL par défaut (= pas d'auto-avance).
+  ensureColumn(db, "files", "advance_ms", "INTEGER");
+
   // Partage de dossier (ajouté après coup) : la table `shares` historique a
   // `file_id NOT NULL` et pas de `folder_id`. SQLite ne sait pas relâcher un
   // NOT NULL par ALTER → on reconstruit la table (idempotent, legacy only).

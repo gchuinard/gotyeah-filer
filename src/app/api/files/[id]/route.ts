@@ -12,6 +12,7 @@ import {
   getFile,
   incrementDownloadCount,
   moveFile,
+  setFileAdvanceMs,
   setFileNote,
   storedFilePath,
   updateFileBlob,
@@ -258,7 +259,11 @@ export async function PATCH(
   } catch {
     return Response.json({ error: "JSON invalide." }, { status: 400 });
   }
-  const data = (body ?? {}) as { folderId?: unknown; note?: unknown };
+  const data = (body ?? {}) as {
+    folderId?: unknown;
+    note?: unknown;
+    advanceMs?: unknown;
+  };
 
   // Note libre (uniquement si la clé est présente dans le corps).
   if ("note" in data) {
@@ -266,6 +271,15 @@ export async function PATCH(
       return Response.json({ error: "Note invalide." }, { status: 400 });
     }
     setFileNote(id, data.note ?? null);
+  }
+
+  // Durée d'auto-avance (ms ; uniquement si la clé est présente).
+  if ("advanceMs" in data) {
+    const v = data.advanceMs;
+    if (v !== null && (typeof v !== "number" || !Number.isFinite(v) || v < 0)) {
+      return Response.json({ error: "Durée invalide." }, { status: 400 });
+    }
+    setFileAdvanceMs(id, v === null ? null : (v as number));
   }
 
   // Déplacement (uniquement si la clé est présente).
