@@ -17,6 +17,7 @@ import { AdjustFilter } from "@/components/adjust-filter";
 import { isAdjusted, type Adjust } from "@/lib/image-adjust";
 import { overwriteMime, renderAdjusted } from "@/lib/render-adjusted";
 import { advanceMsToSecs, advanceSecsToMs } from "@/lib/use-file-advance";
+import { AutoAdvanceCountdown } from "@/components/auto-advance-countdown";
 
 type Progress = { ready: number; total: number; failed: number };
 
@@ -873,10 +874,17 @@ export function ProjectionRegie({
                 <span className="text-xs text-zinc-500">s</span>
               </div>
             </div>
-            <p className="mt-1 text-[11px] text-zinc-600">
-              Vide = manuel. Sinon passe à l&apos;image suivante après ce délai
-              (écran public ouvert ; en pause, le décompte se fige).
-            </p>
+            <AutoAdvanceCountdown
+              advanceMs={advanceMs}
+              slide={timerSlide}
+              running={timerRunning}
+              active={publicOpen && index < max}
+            >
+              <p className="mt-1 text-[11px] text-zinc-600">
+                Vide = manuel. Sinon passe à l&apos;image suivante après ce délai
+                (écran public ouvert ; en pause, le décompte se fige).
+              </p>
+            </AutoAdvanceCountdown>
           </div>
 
           {/* Image suivante */}
