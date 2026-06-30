@@ -14,6 +14,7 @@ import {
   ZERO_ADJUST,
   type Adjust,
 } from "@/lib/image-adjust";
+import { advanceMsToSecs, advanceSecsToMs } from "@/lib/use-file-advance";
 
 /** Formate une durée en h:mm:ss (heures masquées si nulles). */
 function fmt(ms: number): string {
@@ -53,6 +54,10 @@ export function RemoteControl() {
   const [state, setState] = useState<RemoteState | null>(null);
   // Édition locale de la note (prime sur la valeur serveur, par id d'image).
   const [noteEdits, setNoteEdits] = useState<Record<string, string>>({});
+  // Édition locale de l'avance auto (prime sur la valeur serveur, par id d'image).
+  const [advanceEdits, setAdvanceEdits] = useState<
+    Record<string, number | null>
+  >({});
   // Instant courant pour faire tiquer le chrono extrapolé.
   const [now, setNow] = useState(() => Date.now());
   // Instant (horloge du téléphone) de réception du dernier instantané chrono.
@@ -83,6 +88,9 @@ export function RemoteControl() {
   // Note en attente d'envoi (debounce + flush au démontage).
   const pendingNote = useRef<{ id: string; value: string } | null>(null);
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Avance auto en attente d'envoi (debounce + flush au démontage).
+  const pendingAdvance = useRef<{ id: string; ms: number | null } | null>(null);
+  const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Throttle d'envoi du réglage live (au plus ~8×/s, dernière valeur).
   const adjustSendTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestAdjustRef = useRef<Adjust>(ZERO_ADJUST);
@@ -174,6 +182,8 @@ export function RemoteControl() {
       note: s.note ?? "",
       timer: tmr,
       editable: !!s.editable,
+      advanceMs: s.advanceMs ?? null,
+      advanceActive: !!s.advanceActive,
     });
   }, []);
 
@@ -348,17 +358,46 @@ export function RemoteControl() {
     return () => clearInterval(t);
   }, [running]);
 
-  // Flush de la note en attente au démontage (ne rien perdre si on ferme).
+  // Envoie immédiatement les éditions en attente (note + avance) pour LEUR id
+  // d'origine, en vidant les slots. Idempotent. Appelé au changement d'image
+  // courante ET au démontage : sinon une édition juste avant de changer d'image
+  // serait écrasée par l'édition de la nouvelle image (slot unique) → perdue.
+  const flushPending = useCallback(() => {
+    const pn = pendingNote.current;
+    if (pn) {
+      if (noteTimer.current) {
+        clearTimeout(noteTimer.current);
+        noteTimer.current = null;
+      }
+      pendingNote.current = null;
+      send({ type: "note", id: pn.id, value: pn.value });
+    }
+    const pa = pendingAdvance.current;
+    if (pa) {
+      if (advanceTimer.current) {
+        clearTimeout(advanceTimer.current);
+        advanceTimer.current = null;
+      }
+      pendingAdvance.current = null;
+      send({ type: "advance", id: pa.id, ms: pa.ms });
+    }
+  }, [send]);
+
+  // Flush au changement d'image courante (la cleanup tourne aussi au démontage).
+  const curImgId = state?.current?.id ?? null;
+  useEffect(() => {
+    return () => flushPending();
+  }, [curImgId, flushPending]);
+
+  // Au démontage : flush des éditions + nettoyage des timers de retouche.
   useEffect(() => {
     return () => {
-      if (noteTimer.current) clearTimeout(noteTimer.current);
       if (adjustSendTimer.current) clearTimeout(adjustSendTimer.current);
       if (commitTimer.current) clearTimeout(commitTimer.current);
       if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
-      const p = pendingNote.current;
-      if (p) send({ type: "note", id: p.id, value: p.value });
+      flushPending();
     };
-  }, [send]);
+  }, [flushPending]);
 
   function onNoteChange(value: string) {
     const id = state?.current?.id;
@@ -371,6 +410,23 @@ export function RemoteControl() {
       if (p) {
         send({ type: "note", id: p.id, value: p.value });
         pendingNote.current = null;
+      }
+    }, 500);
+  }
+
+  // Édite l'avance auto de l'image courante (optimiste + debounce + flush, comme la note).
+  function onAdvanceChange(input: string) {
+    const id = state?.current?.id;
+    if (!id) return;
+    const ms = advanceSecsToMs(input);
+    setAdvanceEdits((e) => ({ ...e, [id]: ms }));
+    pendingAdvance.current = { id, ms };
+    if (advanceTimer.current) clearTimeout(advanceTimer.current);
+    advanceTimer.current = setTimeout(() => {
+      const p = pendingAdvance.current;
+      if (p) {
+        send({ type: "advance", id: p.id, ms: p.ms });
+        pendingAdvance.current = null;
       }
     }, 500);
   }
@@ -628,6 +684,17 @@ export function RemoteControl() {
   const slideMs = snap.slideMs + extra;
   const curFile = state?.current ?? null;
   const nextFile = state?.next ?? null;
+  // Avance auto : valeur éditée localement sinon serveur (null = aucune).
+  const advanceMsVal =
+    curId && curId in advanceEdits
+      ? advanceEdits[curId]
+      : (state?.advanceMs ?? null);
+  // Décompte extrapolé (depuis le chrono « image » déjà extrapolé), affiché seulement
+  // si l'auto-avance est réellement armée côté régie (écran public ouvert, pas la fin).
+  const advanceRemainingMs =
+    (state?.advanceActive ?? false) && advanceMsVal && advanceMsVal > 0
+      ? Math.min(advanceMsVal, Math.max(0, advanceMsVal - slideMs))
+      : null;
 
   // Vignette compacte (boîte 4/3 égale) — réutilisée pour « Actuelle » et « Suivante ».
   const renderThumb = (
@@ -723,6 +790,32 @@ export function RemoteControl() {
               Reset
             </button>
           </div>
+        </div>
+
+        {/* Avance auto (par image, persistée) : réglage en secondes + décompte
+            live à droite quand l'auto-avance est réellement armée côté régie. */}
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-zinc-800 px-3 py-2">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-zinc-500">Avance auto</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={0}
+              step={1}
+              disabled={!curId}
+              value={advanceMsToSecs(advanceMsVal)}
+              onChange={(e) => onAdvanceChange(e.target.value)}
+              placeholder="—"
+              className="w-14 rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1 text-sm tabular-nums text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-500 disabled:opacity-50"
+            />
+            <span className="text-xs text-zinc-500">s</span>
+          </div>
+          {advanceRemainingMs != null && (
+            <span className="flex items-center gap-1 text-xs font-medium tabular-nums text-amber-400">
+              ⏱ {Math.ceil(advanceRemainingMs / 1000)}&nbsp;s
+              {!snap.running && <span className="text-zinc-500">(pause)</span>}
+            </span>
+          )}
         </div>
 
         {/* Note de l'image courante (éditable, persistée en base) */}

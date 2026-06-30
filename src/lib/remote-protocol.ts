@@ -24,6 +24,11 @@ export type RemoteState = {
   timer: RemoteTimer;
   /** Image courante retouchable ? (image matricielle, SVG exclu). */
   editable: boolean;
+  /** Durée d'auto-avance (ms) de l'image courante, ou null (= aucune). */
+  advanceMs?: number | null;
+  /** Auto-avance réellement armée côté régie (écran public ouvert ET pas la
+   * dernière image) → le téléphone n'affiche le décompte que dans ce cas. */
+  advanceActive?: boolean;
   /**
    * Accusé de réception : dernier `seq` de commande reçu par la régie. Le canal
    * tél→régie étant best-effort (perte possible si le SSE de la régie est figé),
@@ -42,6 +47,8 @@ export type RemoteMsg =
   | { type: "black"; on: boolean; seq?: number }
   /** télécommande → régie : édite la note du fichier `id` (persistée en base). */
   | { type: "note"; id: string; value: string }
+  /** télécommande → régie : règle l'auto-avance du fichier `id` (ms ; null = aucune). */
+  | { type: "advance"; id: string; ms: number | null }
   /** télécommande → régie : pilote le chrono (pause/reprise ou remise à zéro). */
   | { type: "timer"; action: "toggle" | "reset"; seq?: number }
   /**

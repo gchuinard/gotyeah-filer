@@ -50,6 +50,7 @@ export function ProjectionRegie({
   onClose,
   onEdit,
   onNoteById,
+  onAdvanceMsById,
   onRetouched,
   paused = false,
 }: {
@@ -67,6 +68,8 @@ export function ProjectionRegie({
   onEdit?: () => void;
   /** Édite la note d'un fichier précis (commande de la télécommande). */
   onNoteById?: (id: string, value: string) => void;
+  /** Édite l'auto-avance d'un fichier précis (commande de la télécommande). */
+  onAdvanceMsById?: (id: string, ms: number | null) => void;
   /** Après un écrasement de retouche lancé depuis la télécommande (rafraîchir les données). */
   onRetouched?: (id: string) => void;
   /** Neutralise le clavier de la régie (ex. pendant l'édition de retouche). */
@@ -139,10 +142,14 @@ export function ProjectionRegie({
   // Dernier `seq` de commande reçu du téléphone → renvoyé en `ackSeq` (accusé).
   const lastRemoteSeqRef = useRef(0);
   const noteRef = useRef("");
+  // Avance auto de l'image courante + état « projection live » (pour le téléphone).
+  const advanceMsRef = useRef<number | null>(null);
+  const publicOpenRef = useRef(false);
   const totalRef = useRef<Clock>({ base: 0, since: null });
   const slideRef = useRef<Clock>({ base: 0, since: null });
   const runningRef = useRef(false);
   const onNoteByIdRef = useRef(onNoteById);
+  const onAdvanceMsByIdRef = useRef(onAdvanceMsById);
   const onRetouchedRef = useRef(onRetouched);
   // Garde anti-écrasements concurrents (sérialise les commandes `retouch`).
   const retouchBusyRef = useRef(false);
@@ -155,10 +162,13 @@ export function ProjectionRegie({
     codeRef.current = remoteCode;
     blackRef.current = black;
     noteRef.current = note;
+    advanceMsRef.current = advanceMs ?? null;
+    publicOpenRef.current = publicOpen;
     totalRef.current = timerTotal;
     slideRef.current = timerSlide;
     runningRef.current = timerRunning;
     onNoteByIdRef.current = onNoteById;
+    onAdvanceMsByIdRef.current = onAdvanceMsById;
     onRetouchedRef.current = onRetouched;
   });
   // Dernière position diffusée : évite l'écho (public → régie → public).
@@ -336,6 +346,8 @@ export function ProjectionRegie({
         running: runningRef.current,
       },
       editable,
+      advanceMs: advanceMsRef.current,
+      advanceActive: publicOpenRef.current && idx < fs.length - 1,
       ackSeq: lastRemoteSeqRef.current,
     };
     fetch("/api/projection/cmd", {
@@ -434,6 +446,7 @@ export function ProjectionRegie({
         value?: string;
         action?: string;
         adjust?: Adjust | null;
+        ms?: number | null;
         seq?: number;
       };
       try {
@@ -465,6 +478,11 @@ export function ProjectionRegie({
         typeof msg.value === "string"
       ) {
         onNoteByIdRef.current?.(msg.id, msg.value);
+      } else if (msg.type === "advance" && typeof msg.id === "string") {
+        onAdvanceMsByIdRef.current?.(
+          msg.id,
+          typeof msg.ms === "number" ? msg.ms : null,
+        );
       } else if (msg.type === "timer") {
         if (msg.action === "toggle") timerToggle();
         else if (msg.action === "reset") timerReset();
@@ -543,6 +561,8 @@ export function ProjectionRegie({
     filesKey,
     black,
     note,
+    advanceMs,
+    publicOpen,
     timerTotal,
     timerSlide,
     timerRunning,

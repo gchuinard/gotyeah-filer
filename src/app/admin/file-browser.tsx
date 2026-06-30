@@ -648,6 +648,7 @@ export function FileBrowser({
             if (canEdit && selected) setPresenterEditId(selected.id);
           }}
           onNoteById={(id, v) => setNote(id, v)}
+          onAdvanceMsById={(id, ms) => setAdvance(id, ms)}
           onRetouched={(id) => {
             router.refresh();
             bustPreview(id);
