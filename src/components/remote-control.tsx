@@ -626,11 +626,43 @@ export function RemoteControl() {
   const extra = snap.running ? Math.max(0, now - timerRecvAt) : 0;
   const totalMs = snap.totalMs + extra;
   const slideMs = snap.slideMs + extra;
+  const curFile = state?.current ?? null;
+  const nextFile = state?.next ?? null;
+
+  // Vignette compacte (boîte 4/3 égale) — réutilisée pour « Actuelle » et « Suivante ».
+  const renderThumb = (
+    label: string,
+    file: RemoteFile | null,
+    opts?: { black?: boolean; empty?: string },
+  ) => (
+    <div className="flex min-w-0 flex-col gap-1">
+      <span className="text-center text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+        {label}
+      </span>
+      <div className="relative flex aspect-[4/3] w-full items-center justify-center overflow-hidden rounded-lg border border-zinc-800 bg-black">
+        {file?.id ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={`/api/files/${file.id}?inline=1`}
+            alt={file.name}
+            className="max-h-full max-w-full object-contain"
+          />
+        ) : (
+          <span className="text-xs text-zinc-600">{opts?.empty ?? "—"}</span>
+        )}
+        {opts?.black && file?.id && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/85 text-[10px] uppercase tracking-wide text-zinc-400">
+            écran noir
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
   return (
-    <main className="flex min-h-dvh flex-col bg-zinc-950 p-4 text-zinc-100">
+    <main className="flex min-h-dvh flex-col bg-zinc-950 p-3 text-zinc-100">
       {/* En-tête : position + état de connexion */}
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-2 flex items-center justify-between">
         <span className="text-sm tabular-nums text-zinc-400">{pos}</span>
         <span className="flex items-center gap-1.5 text-xs text-zinc-500">
           <span
@@ -652,123 +684,100 @@ export function RemoteControl() {
 
       {/* Commande émise mais non accusée par la régie dans le délai (canal dégradé) */}
       {unconfirmed && (
-        <p className="mb-3 rounded-lg border border-amber-800 bg-amber-950/40 px-3 py-1.5 text-center text-xs text-amber-300">
+        <p className="mb-2 rounded-lg border border-amber-800 bg-amber-950/40 px-3 py-1.5 text-center text-xs text-amber-300">
           ⚠ Commande non confirmée — vérifie l&apos;écran
         </p>
       )}
 
-      {/* Zone défilante : chrono + suivante + note */}
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
-        {/* Chrono */}
-        <div className="rounded-xl border border-zinc-800 p-3">
-          <div className="flex items-end justify-between gap-2">
-            <div>
-              <p className="font-mono text-3xl tabular-nums text-zinc-100">
-                {fmt(totalMs)}
-              </p>
-              <p className="text-[10px] uppercase tracking-wide text-zinc-600">
-                total
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="font-mono text-xl tabular-nums text-zinc-400">
-                {fmt(slideMs)}
-              </p>
-              <p className="text-[10px] uppercase tracking-wide text-zinc-600">
-                image
-              </p>
-            </div>
+      {/* Zone défilante : aperçus actuelle/suivante + chrono + note */}
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+        {/* Aperçus : image ACTUELLE + SUIVANTE côte à côte (compact) */}
+        <div className="grid grid-cols-2 gap-2">
+          {renderThumb("Actuelle", curFile, { black })}
+          {renderThumb("Suivante", nextFile, { empty: "— fin —" })}
+        </div>
+
+        {/* Chrono compact (une ligne) */}
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-zinc-800 px-3 py-2">
+          <div className="flex items-baseline gap-2">
+            <span className="font-mono text-2xl tabular-nums text-zinc-100">
+              {fmt(totalMs)}
+            </span>
+            <span className="font-mono text-xs tabular-nums text-zinc-500">
+              img {fmt(slideMs)}
+            </span>
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-2">
+          <div className="flex gap-1.5">
             <button
               type="button"
               onClick={() => sendSeq({ type: "timer", action: "toggle" }, false)}
-              className="rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-200 transition-colors active:bg-zinc-900"
+              className="rounded-md border border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-200 transition-colors active:bg-zinc-900"
             >
               {snap.running ? "Pause" : "Reprendre"}
             </button>
             <button
               type="button"
               onClick={() => sendSeq({ type: "timer", action: "reset" }, false)}
-              className="rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-200 transition-colors active:bg-zinc-900"
+              className="rounded-md border border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-200 transition-colors active:bg-zinc-900"
             >
               Reset
             </button>
           </div>
         </div>
 
-        {/* Vignette de l'image suivante */}
-        <div className="flex flex-col items-center gap-1.5">
-          <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-            Suivante
-          </span>
-          {state?.next?.id ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={`/api/files/${state.next.id}?inline=1`}
-              alt={state.next.name}
-              className="max-h-[28vh] max-w-full rounded-xl border border-zinc-800 object-contain"
-            />
-          ) : (
-            <p className="text-sm text-zinc-600">— fin —</p>
-          )}
-        </div>
-
         {/* Note de l'image courante (éditable, persistée en base) */}
-        <div>
-          <p className="mb-1.5 text-xs font-medium text-zinc-500">Note</p>
-          <textarea
-            value={noteValue}
-            onChange={(e) => onNoteChange(e.target.value)}
-            disabled={!curId}
-            placeholder={curId ? "Note pour cette image…" : "—"}
-            className="h-24 w-full resize-none rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-500 disabled:opacity-50"
-          />
-        </div>
+        <textarea
+          value={noteValue}
+          onChange={(e) => onNoteChange(e.target.value)}
+          disabled={!curId}
+          placeholder={curId ? "Note pour cette image…" : "Note —"}
+          className="h-16 w-full resize-none rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-500 disabled:opacity-50"
+        />
       </div>
 
-      {/* Retouche (aperçu projeté en direct) — seulement sur une image */}
-      {state?.editable && (
-        <button
-          type="button"
-          onClick={openRetouch}
-          className="mb-3 rounded-xl border border-zinc-700 px-4 py-3 text-sm text-zinc-200 transition-colors active:bg-zinc-900"
-        >
-          Retoucher l&apos;image ✎
-        </button>
-      )}
+      {/* Actions épinglées en bas : retouche (si dispo) + écran noir + navigation */}
+      <div className="mt-3 flex flex-col gap-2">
+        {state?.editable && (
+          <button
+            type="button"
+            onClick={openRetouch}
+            className="rounded-lg border border-zinc-700 px-4 py-2.5 text-sm text-zinc-200 transition-colors active:bg-zinc-900"
+          >
+            Retoucher l&apos;image ✎
+          </button>
+        )}
 
-      {/* Écran noir */}
-      <button
-        type="button"
-        onClick={() => sendSeq({ type: "black", on: !black }, true)}
-        className={`mb-3 mt-4 rounded-xl border px-4 py-3 text-sm font-medium transition-colors ${
-          black
-            ? "border-amber-700 bg-amber-950 text-amber-300"
-            : "border-zinc-700 text-zinc-300 hover:bg-zinc-900"
-        }`}
-      >
-        {black ? "Écran noir actif — toucher pour rétablir" : "Écran noir"}
-      </button>
+        <button
+          type="button"
+          onClick={() => sendSeq({ type: "black", on: !black }, true)}
+          className={`rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors ${
+            black
+              ? "border-amber-700 bg-amber-950 text-amber-300"
+              : "border-zinc-700 text-zinc-300 hover:bg-zinc-900"
+          }`}
+        >
+          {black ? "Écran noir actif — toucher pour rétablir" : "Écran noir"}
+        </button>
 
-      {/* Navigation : grosses cibles tactiles */}
-      <div className="grid grid-cols-2 gap-3">
-        <button
-          type="button"
-          onClick={() => nav(-1)}
-          aria-label="Précédent"
-          className="rounded-2xl border border-zinc-700 py-7 text-3xl font-semibold text-zinc-100 transition-colors active:bg-zinc-900"
-        >
-          ◀
-        </button>
-        <button
-          type="button"
-          onClick={() => nav(1)}
-          aria-label="Suivant"
-          className="rounded-2xl bg-zinc-100 py-7 text-3xl font-semibold text-zinc-900 transition-colors active:bg-white"
-        >
-          ▶
-        </button>
+        {/* Navigation : grosses cibles tactiles */}
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={() => nav(-1)}
+            aria-label="Précédent"
+            className="rounded-2xl border border-zinc-700 py-6 text-3xl font-semibold text-zinc-100 transition-colors active:bg-zinc-900"
+          >
+            ◀
+          </button>
+          <button
+            type="button"
+            onClick={() => nav(1)}
+            aria-label="Suivant"
+            className="rounded-2xl bg-zinc-100 py-6 text-3xl font-semibold text-zinc-900 transition-colors active:bg-white"
+          >
+            ▶
+          </button>
+        </div>
       </div>
     </main>
   );
