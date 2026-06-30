@@ -92,6 +92,9 @@ export function RemoteControl() {
         from: clientRef.current,
         msg,
       }),
+      // Borne l'envoi : sur réseau mort (accepte le TCP mais ne répond plus) un
+      // POST resterait pendu indéfiniment sans déclencher le .catch.
+      signal: AbortSignal.timeout(5000),
     }).catch(() => {});
   }, []);
 
@@ -182,16 +185,24 @@ export function RemoteControl() {
     // SSE « mort mais ouvert » resterait 'open' sans rien livrer → on le couvre.
     if (!joined || (conn === "open" && !stale)) return;
     let alive = true;
+    let inFlight = false; // ne pas empiler les requêtes si le réseau est lent/mort
     const poll = async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
-        const res = await fetch(`/api/projection/state?code=${codeRef.current}`);
+        const res = await fetch(`/api/projection/state?code=${codeRef.current}`, {
+          cache: "no-store",
+          signal: AbortSignal.timeout(4000),
+        });
         if (!res.ok || !alive) return;
         const text = await res.text();
         if (!text || !alive) return;
         const s = JSON.parse(text) as { type?: string } & Partial<RemoteState>;
         if (s.type === "state") applyState(s);
       } catch {
-        /* réseau KO — on retentera au prochain tick */
+        /* réseau KO / timeout — on retentera au prochain tick */
+      } finally {
+        inFlight = false;
       }
     };
     void poll();
@@ -244,6 +255,37 @@ export function RemoteControl() {
       window.removeEventListener("online", onOnline);
     };
   }, [joined, send]);
+
+  // Wake Lock : garde l'écran du téléphone allumé tant que la télécommande est
+  // connectée → supprime la cause racine « la veille écran fige le SSE ». L'OS
+  // relâche le lock en arrière-plan → on le ré-acquiert au retour au premier plan.
+  // Best-effort : silencieux si l'API est absente (vieux navigateurs).
+  useEffect(() => {
+    if (!joined) return;
+    const nav = navigator as Navigator & {
+      wakeLock?: {
+        request: (t: "screen") => Promise<{ release: () => Promise<void> }>;
+      };
+    };
+    if (!nav.wakeLock) return;
+    let sentinel: { release: () => Promise<void> } | null = null;
+    const acquire = async () => {
+      try {
+        sentinel = await nav.wakeLock!.request("screen");
+      } catch {
+        /* refusé / non dispo → best-effort */
+      }
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void acquire();
+    };
+    void acquire();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      sentinel?.release().catch(() => {});
+    };
+  }, [joined]);
 
   // Tique chaque seconde tant que le chrono tourne (affichage extrapolé).
   const running = state?.timer.running ?? false;

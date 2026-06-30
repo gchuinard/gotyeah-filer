@@ -37,6 +37,10 @@ export async function GET(request: NextRequest) {
           /* flux déjà fermé */
         }
       };
+      // Backoff de reconnexion EventSource déterministe (~2 s) au lieu du défaut
+      // implémentation-dépendant du navigateur (~3-5 s) → retour au temps réel plus
+      // rapide après une coupure mobile. Indicatif (le navigateur peut l'ajuster).
+      enqueue(`retry: 2000\n\n`);
       // 1er message : l'id attribué (chacun s'exclut des diffusions via cet id).
       enqueue(`data: ${JSON.stringify({ type: "hello", clientId: id })}\n\n`);
       unsub = subscribe(code, { id, enqueue });

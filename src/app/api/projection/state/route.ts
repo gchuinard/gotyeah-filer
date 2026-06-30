@@ -21,7 +21,13 @@ export async function GET(request: NextRequest) {
   }
   const json = getLastState(code);
   // Pas d'état mémorisé → 204 (pas de corps) plutôt qu'un corps vide annoncé JSON.
-  if (!json) return new Response(null, { status: 204 });
+  // `no-store` aussi ici (comme la branche JSON) : empêche tout cache intermédiaire
+  // de figer le repli polling sur une 204 alors qu'un état est ensuite mémorisé.
+  if (!json)
+    return new Response(null, {
+      status: 204,
+      headers: { "Cache-Control": "no-store" },
+    });
   return new Response(json, {
     headers: {
       "Content-Type": "application/json; charset=utf-8",
