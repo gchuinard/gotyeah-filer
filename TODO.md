@@ -138,3 +138,17 @@
       se remet à jour même SSE coincé ; temps réel repris au retour du SSE.
       Durcissements (revue) : `lastState` borné (plafond LRU ~50), `GET /state` en **204** si
       vide, et ré-ancrage du chrono **seulement si l'instantané change** (plus de saut arrière).
+- [x] **Télécommande : durcissement liveness + accusé de réception** (audit multi-angles).
+      Le repli polling ne couvrait que la coupure FRANCHE (`onerror`) ; un SSE « **figé mais
+      ouvert** » (veille mobile, bascule réseau, socket proxy demi-ouverte) ne déclenchait pas
+      `onerror` → polling jamais armé, et la **régie sourde en silence**. Livré en 3 phases :
+      **(1) Liveness** — keep-alive en vrai message `data:{type:"ping"}` (15 s), **watchdog**
+      `lastMsgRef` (silence > 35 s → `stale` + reconnexion forcée) sur le tél ET la régie, repli
+      armé aussi sur `stale`, régie dotée d'`onerror`/indicateur/heartbeat d'état (~10 s), resync
+      sur `visibilitychange`/`online`, pastille verte seulement si réellement vivant.
+      **(2) Quick-wins** — Wake Lock écran, `AbortSignal.timeout` + garde `inFlight` (anti-fetch
+      zombies), `no-store` (polling + 204), directive SSE `retry: 2000`.
+      **(3) Accusé `seq`/`ackSeq`** — commandes numérotées, `ackSeq` renvoyé dans l'état (push
+      forcé via `ackTick`), bandeau « commande non confirmée » + réémission des commandes
+      idempotentes au retour de connexion ; navigation en `goto` **absolu** (plus de double-saut),
+      resync du compteur sur l'`ackSeq` (robuste au reload du tél). Redis/multi-instance écartés.
