@@ -163,3 +163,12 @@
       chrono « image » (`usePresenterTimer.slide`) → respecte la pause + reset par image ;
       `setTimeout` sur le restant (pas de polling) ; `restartSlide` à l'ouverture du public
       (pas de saut de la 1ʳᵉ image) ; stop à la dernière (pas de boucle).
+      **Décompte** affiché dans la régie (composant isolé `AutoAdvanceCountdown` qui tique
+      sans re-rendre la régie) — sous le champ ET en overlay sur l'aperçu.
+- [x] **Avance auto + décompte sur la télécommande** (parité). Le téléphone peut **régler**
+      l'avance auto de l'image courante (commande `advance { id, ms }` → `onAdvanceMsById` →
+      `setAdvance` ; optimiste + debounce + **flush au changement d'image/démontage**, qui
+      corrige au passage le même cas latent sur la note) et **voir le décompte** (« ⏱ … »)
+      extrapolé localement, affiché uniquement si l'auto-avance est armée (la régie pousse
+      `advanceMs` + `advanceActive` dans `RemoteState`). Revue adversariale 2 angles → 1 défaut
+      (slot d'attente unique) corrigé.
