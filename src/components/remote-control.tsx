@@ -48,6 +48,8 @@ export function RemoteControl() {
   // polling ET force une reconnexion même sans onerror ; `reconnectN` recrée le flux.
   const [stale, setStale] = useState(false);
   const [reconnectN, setReconnectN] = useState(0);
+  // Une commande envoyée n'a pas été accusée (ackSeq) par la régie dans le délai.
+  const [unconfirmed, setUnconfirmed] = useState(false);
   const [state, setState] = useState<RemoteState | null>(null);
   // Édition locale de la note (prime sur la valeur serveur, par id d'image).
   const [noteEdits, setNoteEdits] = useState<Record<string, string>>({});
@@ -71,6 +73,13 @@ export function RemoteControl() {
   const esRef = useRef<EventSource | null>(null);
   // Instant du dernier message SSE reçu (ping serveur compris) → watchdog de liveness.
   const lastMsgRef = useRef(0);
+  // Séquencement des commandes tél→régie (accusé de réception via `ackSeq`).
+  const seqRef = useRef(0); // compteur monotone des commandes émises
+  const pendingRef = useRef<{ seq: number; at: number } | null>(null); // dernière commande émise
+  const ackRef = useRef(0); // dernier seq accusé par la régie
+  // Dernière commande IDEMPOTENTE (goto/black) à réémettre au retour de connexion.
+  const resendRef = useRef<{ seq: number; msg: RemoteMsg } | null>(null);
+  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Note en attente d'envoi (debounce + flush au démontage).
   const pendingNote = useRef<{ id: string; value: string } | null>(null);
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -98,6 +107,39 @@ export function RemoteControl() {
     }).catch(() => {});
   }, []);
 
+  // Envoi d'une commande discrète AVEC numéro de séquence (pour l'accusé de
+  // réception). `idempotent` (goto/black) → mémorisée pour réémission au retour
+  // de connexion. Arme un délai de 2 s : sans accusé, la commande est signalée.
+  const sendSeq = useCallback(
+    (
+      msg:
+        | { type: "goto"; index: number }
+        | { type: "black"; on: boolean }
+        | { type: "timer"; action: "toggle" | "reset" },
+      idempotent: boolean,
+    ) => {
+      const seq = ++seqRef.current;
+      const full = { ...msg, seq } as RemoteMsg;
+      pendingRef.current = { seq, at: Date.now() };
+      if (idempotent) resendRef.current = { seq, msg: full };
+      send(full);
+      if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+      confirmTimerRef.current = setTimeout(() => {
+        confirmTimerRef.current = null;
+        if (ackRef.current < seq) setUnconfirmed(true);
+      }, 2000);
+    },
+    [send],
+  );
+
+  // Réémet la dernière commande idempotente si elle n'a pas été accusée (au retour
+  // de connexion / premier plan). goto/black sont absolus → réémission sûre, sans
+  // double-saut (contrairement à `go` relatif, désormais remplacé par `goto`).
+  const resendPending = useCallback(() => {
+    const r = resendRef.current;
+    if (r && ackRef.current < r.seq) send(r.msg);
+  }, [send]);
+
   // Applique un état reçu (par SSE ou par le repli polling).
   const applyState = useCallback((s: Partial<RemoteState>) => {
     const tmr = s.timer ?? { totalMs: 0, slideMs: 0, running: false };
@@ -114,6 +156,14 @@ export function RemoteControl() {
       const t = Date.now();
       setTimerRecvAt(t);
       setNow(t);
+    }
+    // Accusé de réception : si la régie a rattrapé notre dernière commande, OK.
+    if (typeof s.ackSeq === "number") {
+      if (s.ackSeq > ackRef.current) ackRef.current = s.ackSeq;
+      // Resync après un reload du téléphone (seqRef repart à 0 alors que la régie
+      // a gardé un seq élevé) : repartir au-dessus, sinon tout serait « déjà accusé ».
+      if (s.ackSeq > seqRef.current) seqRef.current = s.ackSeq;
+      if (ackRef.current >= (pendingRef.current?.seq ?? 0)) setUnconfirmed(false);
     }
     setState({
       index: s.index ?? 0,
@@ -150,6 +200,7 @@ export function RemoteControl() {
       if (msg.type === "hello") {
         clientRef.current = msg.clientId ?? "";
         send({ type: "request-state" });
+        resendPending(); // reconnexion → réémet la commande idempotente non accusée
       } else if (msg.type === "retouch-done") {
         // Résultat de l'écrasement : succès → on ferme ; échec → on garde le panneau.
         if (commitTimer.current) {
@@ -175,7 +226,7 @@ export function RemoteControl() {
       es.close();
       esRef.current = null;
     };
-  }, [joined, send, applyState, reconnectN]);
+  }, [joined, send, applyState, resendPending, reconnectN]);
 
   // Repli polling : si le flux SSE est dégradé (pas « open »), on va chercher le
   // dernier état en HTTP simple (qui passe quand le SSE est coincé) → l'affichage
@@ -242,10 +293,12 @@ export function RemoteControl() {
     const onVisible = () => {
       if (document.visibilityState !== "visible") return;
       send({ type: "request-state" });
+      resendPending();
       if (Date.now() - lastMsgRef.current > 4000) forceReconnect();
     };
     const onOnline = () => {
       send({ type: "request-state" });
+      resendPending();
       forceReconnect();
     };
     document.addEventListener("visibilitychange", onVisible);
@@ -254,7 +307,7 @@ export function RemoteControl() {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("online", onOnline);
     };
-  }, [joined, send]);
+  }, [joined, send, resendPending]);
 
   // Wake Lock : garde l'écran du téléphone allumé tant que la télécommande est
   // connectée → supprime la cause racine « la veille écran fige le SSE ». L'OS
@@ -301,6 +354,7 @@ export function RemoteControl() {
       if (noteTimer.current) clearTimeout(noteTimer.current);
       if (adjustSendTimer.current) clearTimeout(adjustSendTimer.current);
       if (commitTimer.current) clearTimeout(commitTimer.current);
+      if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
       const p = pendingNote.current;
       if (p) send({ type: "note", id: p.id, value: p.value });
     };
@@ -388,6 +442,18 @@ export function RemoteControl() {
       setCommitting(false);
       setRetouchError("Pas de réponse de la régie. Réessaie.");
     }, 40000);
+  }
+
+  // Navigation : on envoie une position ABSOLUE (`goto`) calculée depuis l'état
+  // courant, pas une commande relative (`go`) — ainsi une réémission après perte
+  // ne provoque pas de double-saut. No-op aux bornes (rien à envoyer).
+  function nav(dir: 1 | -1) {
+    const cur = state?.index ?? 0;
+    const total = state?.total ?? 0;
+    if (total <= 0) return;
+    const target = Math.min(Math.max(cur + dir, 0), total - 1);
+    if (target === cur) return;
+    sendSeq({ type: "goto", index: target }, true);
   }
 
   if (!joined) {
@@ -584,6 +650,13 @@ export function RemoteControl() {
         </span>
       </div>
 
+      {/* Commande émise mais non accusée par la régie dans le délai (canal dégradé) */}
+      {unconfirmed && (
+        <p className="mb-3 rounded-lg border border-amber-800 bg-amber-950/40 px-3 py-1.5 text-center text-xs text-amber-300">
+          ⚠ Commande non confirmée — vérifie l&apos;écran
+        </p>
+      )}
+
       {/* Zone défilante : chrono + suivante + note */}
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
         {/* Chrono */}
@@ -609,14 +682,14 @@ export function RemoteControl() {
           <div className="mt-3 grid grid-cols-2 gap-2">
             <button
               type="button"
-              onClick={() => send({ type: "timer", action: "toggle" })}
+              onClick={() => sendSeq({ type: "timer", action: "toggle" }, false)}
               className="rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-200 transition-colors active:bg-zinc-900"
             >
               {snap.running ? "Pause" : "Reprendre"}
             </button>
             <button
               type="button"
-              onClick={() => send({ type: "timer", action: "reset" })}
+              onClick={() => sendSeq({ type: "timer", action: "reset" }, false)}
               className="rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-200 transition-colors active:bg-zinc-900"
             >
               Reset
@@ -668,7 +741,7 @@ export function RemoteControl() {
       {/* Écran noir */}
       <button
         type="button"
-        onClick={() => send({ type: "black", on: !black })}
+        onClick={() => sendSeq({ type: "black", on: !black }, true)}
         className={`mb-3 mt-4 rounded-xl border px-4 py-3 text-sm font-medium transition-colors ${
           black
             ? "border-amber-700 bg-amber-950 text-amber-300"
@@ -682,7 +755,7 @@ export function RemoteControl() {
       <div className="grid grid-cols-2 gap-3">
         <button
           type="button"
-          onClick={() => send({ type: "go", dir: -1 })}
+          onClick={() => nav(-1)}
           aria-label="Précédent"
           className="rounded-2xl border border-zinc-700 py-7 text-3xl font-semibold text-zinc-100 transition-colors active:bg-zinc-900"
         >
@@ -690,7 +763,7 @@ export function RemoteControl() {
         </button>
         <button
           type="button"
-          onClick={() => send({ type: "go", dir: 1 })}
+          onClick={() => nav(1)}
           aria-label="Suivant"
           className="rounded-2xl bg-zinc-100 py-7 text-3xl font-semibold text-zinc-900 transition-colors active:bg-white"
         >

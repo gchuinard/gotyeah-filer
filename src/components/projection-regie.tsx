@@ -87,6 +87,10 @@ export function ProjectionRegie({
     "connecting",
   );
   const [remoteReconnectN, setRemoteReconnectN] = useState(0);
+  // Tic qui bumpe à chaque commande reçue → déclenche un push d'état (donc l'envoi
+  // de l'`ackSeq`) même quand la commande ne change rien d'observable (ex. goto
+  // sur la même image), pour que le téléphone reçoive toujours son accusé.
+  const [ackTick, setAckTick] = useState(0);
   // Retouche LIVE venue de la télécommande : réglage appliqué à l'aperçu courant
   // (et rediffusé à la fenêtre publique). Lié à un `id` pour ne pas déborder.
   const [liveAdjust, setLiveAdjust] = useState<{
@@ -124,6 +128,8 @@ export function ProjectionRegie({
   const remoteEsRef = useRef<EventSource | null>(null);
   // Instant du dernier message SSE reçu (ping serveur compris) → watchdog régie.
   const lastRemoteMsgRef = useRef(0);
+  // Dernier `seq` de commande reçu du téléphone → renvoyé en `ackSeq` (accusé).
+  const lastRemoteSeqRef = useRef(0);
   const noteRef = useRef("");
   const totalRef = useRef<Clock>({ base: 0, since: null });
   const slideRef = useRef<Clock>({ base: 0, since: null });
@@ -301,6 +307,7 @@ export function ProjectionRegie({
         running: runningRef.current,
       },
       editable,
+      ackSeq: lastRemoteSeqRef.current,
     };
     fetch("/api/projection/cmd", {
       method: "POST",
@@ -398,6 +405,7 @@ export function ProjectionRegie({
         value?: string;
         action?: string;
         adjust?: Adjust | null;
+        seq?: number;
       };
       try {
         msg = JSON.parse(e.data);
@@ -405,6 +413,13 @@ export function ProjectionRegie({
         return;
       }
       if (msg.type === "ping") return; // keep-alive de liveness (rien à appliquer)
+      // Accusé de réception : mémorise le dernier seq reçu et force un push d'état
+      // (via ackTick) pour le renvoyer au téléphone, même si la commande ne change
+      // rien d'observable (sinon l'effet « push au changement » ne se déclencherait pas).
+      if (typeof msg.seq === "number") {
+        lastRemoteSeqRef.current = Math.max(lastRemoteSeqRef.current, msg.seq);
+        setAckTick((t) => t + 1);
+      }
       if (msg.type === "hello") {
         remoteClientRef.current = msg.clientId ?? "";
         pushState();
@@ -502,6 +517,7 @@ export function ProjectionRegie({
     timerTotal,
     timerSlide,
     timerRunning,
+    ackTick,
     pushState,
   ]);
 

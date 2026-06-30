@@ -24,19 +24,26 @@ export type RemoteState = {
   timer: RemoteTimer;
   /** Image courante retouchable ? (image matricielle, SVG exclu). */
   editable: boolean;
+  /**
+   * Accusé de réception : dernier `seq` de commande reçu par la régie. Le canal
+   * tél→régie étant best-effort (perte possible si le SSE de la régie est figé),
+   * le téléphone compare ce champ au `seq` de sa dernière commande pour signaler
+   * une commande non confirmée et réémettre les commandes idempotentes.
+   */
+  ackSeq?: number;
 };
 
 export type RemoteMsg =
-  /** télécommande → régie : avancer / reculer d'une image. */
-  | { type: "go"; dir: 1 | -1 }
-  /** télécommande → régie : aller à une position précise. */
-  | { type: "goto"; index: number }
-  /** télécommande → régie : écran public noir (on/off). */
-  | { type: "black"; on: boolean }
+  /** télécommande → régie : avancer / reculer d'une image. (conservé ; le tél émet `goto`.) */
+  | { type: "go"; dir: 1 | -1; seq?: number }
+  /** télécommande → régie : aller à une position précise (idempotent). */
+  | { type: "goto"; index: number; seq?: number }
+  /** télécommande → régie : écran public noir (on/off, idempotent). */
+  | { type: "black"; on: boolean; seq?: number }
   /** télécommande → régie : édite la note du fichier `id` (persistée en base). */
   | { type: "note"; id: string; value: string }
   /** télécommande → régie : pilote le chrono (pause/reprise ou remise à zéro). */
-  | { type: "timer"; action: "toggle" | "reset" }
+  | { type: "timer"; action: "toggle" | "reset"; seq?: number }
   /**
    * télécommande → régie : réglage de retouche LIVE de l'image `id` (la régie le
    * rediffuse à la fenêtre publique). `adjust: null` retire le filtre.
