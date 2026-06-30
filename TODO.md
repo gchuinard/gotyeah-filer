@@ -152,3 +152,14 @@
       forcé via `ackTick`), bandeau « commande non confirmée » + réémission des commandes
       idempotentes au retour de connexion ; navigation en `goto` **absolu** (plus de double-saut),
       resync du compteur sur l'`ackSeq` (robuste au reload du tél). Redis/multi-instance écartés.
+- [x] **Remote : affichage image actuelle + suivante + mise en page compacte**. La
+      télécommande montre désormais l'image **actuelle** À CÔTÉ de la suivante (boîtes 4/3,
+      overlay « écran noir » sur l'actuelle si le noir est actif), chrono sur une ligne,
+      note réduite, paddings/boutons resserrés → prend nettement moins de place.
+- [x] **Avance auto par image (mode présentateur)**. Durée par image (colonne `files.advance_ms`,
+      `PATCH … { advanceMs }`, hook `useFileAdvance` calqué sur les notes), éditable dans
+      l'explorateur ET la régie (saisie en secondes). En présentation (écran public ouvert),
+      l'image passe à la suivante une fois le délai **passé sur l'image** écoulé : réutilise le
+      chrono « image » (`usePresenterTimer.slide`) → respecte la pause + reset par image ;
+      `setTimeout` sur le restant (pas de polling) ; `restartSlide` à l'ouverture du public
+      (pas de saut de la 1ʳᵉ image) ; stop à la dernière (pas de boucle).
