@@ -21,6 +21,7 @@ export function AutoAdvanceCountdown({
   running,
   active,
   children,
+  variant = "inline",
 }: {
   advanceMs: number | null | undefined;
   slide: Clock;
@@ -28,6 +29,8 @@ export function AutoAdvanceCountdown({
   /** `publicOpen && index < max` : l'auto-avance peut réellement se déclencher. */
   active: boolean;
   children?: ReactNode;
+  /** `inline` = ligne dans la régie ; `badge` = pastille pour overlay sur l'aperçu. */
+  variant?: "inline" | "badge";
 }) {
   const visible = active && !!advanceMs && advanceMs > 0;
   const [now, setNow] = useState(() => Date.now());
@@ -57,10 +60,24 @@ export function AutoAdvanceCountdown({
     Math.max(0, advanceMs - clockElapsed(slide, now)),
   );
   const secs = Math.ceil(remainingMs / 1000);
+  const label = (
+    <>
+      <span className="tabular-nums">⏱ image suivante dans {secs}&nbsp;s</span>
+      {!running && <span className="text-zinc-400">(en pause)</span>}
+    </>
+  );
+
+  if (variant === "badge") {
+    // Pastille pour overlay sur l'aperçu (fond translucide, lisible sur l'image).
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-black/70 px-2.5 py-1 text-xs font-medium text-amber-300 backdrop-blur-sm">
+        {label}
+      </span>
+    );
+  }
   return (
     <p className="mt-1 flex items-center gap-1 text-[11px] font-medium text-amber-400">
-      <span className="tabular-nums">⏱ image suivante dans {secs}&nbsp;s</span>
-      {!running && <span className="text-zinc-500">(en pause)</span>}
+      {label}
     </p>
   );
 }

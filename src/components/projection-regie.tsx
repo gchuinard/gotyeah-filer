@@ -698,6 +698,17 @@ export function ProjectionRegie({
               Écran noir
             </div>
           )}
+          {/* Décompte d'auto-avance en overlay (coin haut-gauche ; n'apparaît que
+              quand l'auto-avance est armée). pointer-events-none : ne gêne rien. */}
+          <div className="pointer-events-none absolute left-3 top-3 z-10">
+            <AutoAdvanceCountdown
+              advanceMs={advanceMs}
+              slide={timerSlide}
+              running={timerRunning}
+              active={publicOpen && index < max}
+              variant="badge"
+            />
+          </div>
           {liveFilterOn && liveAdjust && (
             <AdjustFilter a={liveAdjust.adjust} id={regieFilterId} />
           )}
