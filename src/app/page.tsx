@@ -1,12 +1,18 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
+import { oidcEnabled, OIDC_BUTTON_LABEL, legacyLoginEnabled } from "@/lib/oidc";
 import { LoginForm } from "@/app/login-form";
 
-export default async function Home() {
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<{ sso_error?: string }>;
+}) {
   const session = await getSession();
   if (session?.role === "admin") {
     redirect("/admin");
   }
+  const { sso_error } = await searchParams;
 
   return (
     <main className="flex flex-1 flex-col items-center justify-center px-6 py-16">
@@ -17,7 +23,12 @@ export default async function Home() {
             Saisis ton adresse e-mail pour accéder à l&apos;espace.
           </p>
         </div>
-        <LoginForm />
+        <LoginForm
+          oidcEnabled={oidcEnabled()}
+          oidcLabel={OIDC_BUTTON_LABEL}
+          legacyLogin={legacyLoginEnabled()}
+          ssoError={sso_error}
+        />
       </div>
     </main>
   );

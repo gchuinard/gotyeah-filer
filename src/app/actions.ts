@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { isAdminEmail } from "@/lib/config";
 import { normalizeEmail } from "@/lib/email";
+import { legacyLoginEnabled } from "@/lib/oidc";
 import {
   SESSION_COOKIE,
   sessionCookieOptions,
@@ -21,6 +22,12 @@ export async function login(
   _prev: LoginState,
   formData: FormData,
 ): Promise<LoginState> {
+  if (!legacyLoginEnabled()) {
+    return {
+      error: "Connexion par email désactivée. Utilise « Se connecter avec GotYeah ».",
+    };
+  }
+
   const email = normalizeEmail(String(formData.get("email") ?? ""));
 
   if (!email) {
