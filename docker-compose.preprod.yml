@@ -1,0 +1,45 @@
+# Filer — environnement de PREPROD (Raspberry Pi).
+#
+# Pile jumelle de la prod, strictement isolée : conteneur, image, volume et
+# fichier d'environnement distincts. Rien n'est partagé avec `docker-compose.yml`
+# à part le réseau `npm_net` (indispensable pour que Nginx Proxy Manager la voie).
+#
+# Ce fichier est destiné à un checkout SÉPARÉ, sur la branche `preprod` :
+#     /home/pi/sites/gotyeah-filer-preprod
+# Le nom du projet compose en découle (`gotyeah-filer-preprod`), ce qui donne un
+# volume nommé `gotyeah-filer-preprod_filer_preprod_data`, sans collision avec
+# le `gotyeah-filer_filer_data` de la production.
+#
+# Déploiement :  docker compose -f docker-compose.preprod.yml up -d --build
+# Prérequis   :  un .env.preprod (secrets DÉDIÉS : SESSION_SECRET et client OIDC
+#                `filer-preprod` propres — ne JAMAIS réutiliser ceux de la prod).
+#
+# La preprod n'est PAS publique : l'hôte NPM qui la sert porte une Access List
+# (basic-auth). Elle contient une copie des données de prod, donc de vrais
+# documents : ne jamais l'exposer sans cette protection.
+
+services:
+  filer:
+    build: .
+    # Tag distinct : la preprod ne doit jamais écraser l'image de production.
+    image: filer:preprod
+    container_name: filer_preprod
+    restart: unless-stopped
+    env_file: .env.preprod
+    # `expose` (et non `ports`) : joignable seulement depuis le réseau Docker,
+    # NPM est l'unique porte d'entrée — comme en prod.
+    expose:
+      - "3000"
+    volumes:
+      # Volume nommé DÉDIÉ : fichiers téléversés + base SQLite de la preprod.
+      - filer_preprod_data:/data
+    networks:
+      - npm_net
+
+volumes:
+  filer_preprod_data:
+
+networks:
+  # Réseau externe déjà possédé par Nginx Proxy Manager (cf. docker-compose.yml).
+  npm_net:
+    external: true

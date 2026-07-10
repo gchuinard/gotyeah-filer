@@ -33,6 +33,7 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
+!.env.preprod.example
 
 # Filer: données runtime montées sur /data (fichiers uploadés + base SQLite)
 /data
