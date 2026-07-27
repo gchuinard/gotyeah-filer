@@ -17,6 +17,8 @@ function ssoErrorMessage(code: string): string {
       return "Le fournisseur d'identité n'a pas transmis d'adresse email.";
     case "disabled":
       return "La connexion via GotYeah est désactivée.";
+    case "misconfig":
+      return "Configuration SSO incohérente sur ce serveur (APP_URL et OIDC_REDIRECT_URI ne désignent pas le même environnement). Connexion bloquée par sécurité.";
     default:
       return "Échec de la connexion via GotYeah. Réessaie.";
   }

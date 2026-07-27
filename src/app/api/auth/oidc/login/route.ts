@@ -1,10 +1,13 @@
 import { randomBytes, createHash } from "crypto";
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import {
   oidcEnabled,
   getDiscovery,
   oidcConfig,
   appOrigin,
+  oidcOriginMismatch,
+  foreignRequestHost,
   OIDC_TX_COOKIE,
   OIDC_TX_PATH,
   OIDC_SCOPES,
@@ -12,9 +15,30 @@ import {
 
 const b64url = (buf: Buffer) => buf.toString("base64url");
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   if (!oidcEnabled()) {
     return NextResponse.redirect(`${appOrigin()}/?sso_error=disabled`);
+  }
+
+  // Garde-fou n°1 — configuration : le redirect_uri ne pointe pas sur cette
+  // pile. On échoue AVANT de partir chez l'IdP, qui nous ramènerait ailleurs.
+  if (oidcOriginMismatch()) {
+    return NextResponse.redirect(`${appOrigin()}/?sso_error=misconfig`);
+  }
+
+  // Garde-fou n°2 — routage : la requête arrive sous un domaine qui n'est pas
+  // le nôtre (alias DNS partagé en amont). Surtout PAS de redirection ici — elle
+  // renverrait justement l'utilisateur sur l'autre pile, ce qu'on veut empêcher.
+  // Une erreur franche est la seule réponse qui rende le problème visible.
+  const foreign = foreignRequestHost(req.headers);
+  if (foreign) {
+    return new NextResponse(
+      `Mauvais routage : cette instance de Filer répond pour ${appOrigin()}, ` +
+        `mais la requête est arrivée sous « ${foreign} ». ` +
+        `Connexion interrompue pour ne pas t'envoyer sur un autre environnement. ` +
+        `Vérifier le reverse proxy et les alias réseau Docker.`,
+      { status: 503, headers: { "Content-Type": "text/plain; charset=utf-8" } },
+    );
   }
 
   const disc = await getDiscovery();
