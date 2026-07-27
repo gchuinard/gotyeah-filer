@@ -19,7 +19,16 @@
 # documents : ne jamais l'exposer sans cette protection.
 
 services:
-  filer:
+  # ⚠️ Le nom de SERVICE doit être distinct de celui de la prod (`filer`).
+  # Compose ajoute TOUJOURS le nom de service comme alias DNS sur chaque réseau
+  # attaché — `container_name` n'y change rien. Avec un service nommé `filer`
+  # ici, les DEUX conteneurs répondaient au nom `filer` sur `npm_net` : le
+  # `proxy_pass http://filer:3000` de NPM résolvait deux IP et répartissait le
+  # trafic de PRODUCTION entre prod et preprod (une requête sur deux servie par
+  # la preprod, qui renvoyait alors vers un domaine non publié). Incident du
+  # 27/07/2026. Ne jamais réutiliser un nom de service entre deux piles du
+  # même réseau partagé.
+  filer-preprod:
     build: .
     # Tag distinct : la preprod ne doit jamais écraser l'image de production.
     image: filer:preprod
