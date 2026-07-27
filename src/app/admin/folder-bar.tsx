@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useConfirm } from "@/components/confirm-dialog";
+import { useToast } from "@/components/toast";
+import { apiErrorMessage } from "@/lib/api-error";
 import { navKeyBlocked } from "@/lib/use-list-keyboard-nav";
 
 export type FolderChip = { id: string; name: string; count: number };
@@ -21,6 +23,7 @@ export function FolderBar({
 }) {
   const router = useRouter();
   const confirm = useConfirm();
+  const notify = useToast();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -81,7 +84,11 @@ export function FolderBar({
         setName("");
         setCreating(false);
         router.push(`/admin?folder=${f.id}`);
+        return;
       }
+      notify(await apiErrorMessage(res, "Création du dossier impossible."));
+    } catch {
+      notify("Création du dossier impossible : erreur réseau.");
     } finally {
       setBusy(false);
     }
@@ -91,12 +98,20 @@ export function FolderBar({
     if (!activeFolder) return;
     const n = window.prompt("Nouveau nom du dossier :", activeFolder.name);
     if (!n || !n.trim()) return;
-    const res = await fetch(`/api/folders/${activeFolder.id}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: n.trim() }),
-    });
-    if (res.ok) router.refresh();
+    try {
+      const res = await fetch(`/api/folders/${activeFolder.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: n.trim() }),
+      });
+      if (res.ok) {
+        router.refresh();
+        return;
+      }
+      notify(await apiErrorMessage(res, "Renommage impossible."));
+    } catch {
+      notify("Renommage impossible : erreur réseau.");
+    }
   }
 
   async function remove() {
@@ -109,10 +124,18 @@ export function FolderBar({
       danger: true,
     });
     if (!ok) return;
-    const res = await fetch(`/api/folders/${activeFolder.id}`, {
-      method: "DELETE",
-    });
-    if (res.ok) router.push("/admin");
+    try {
+      const res = await fetch(`/api/folders/${activeFolder.id}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        router.push("/admin");
+        return;
+      }
+      notify(await apiErrorMessage(res, "Suppression du dossier impossible."));
+    } catch {
+      notify("Suppression du dossier impossible : erreur réseau.");
+    }
   }
 
   function chip(href: string, label: string, isActive: boolean) {

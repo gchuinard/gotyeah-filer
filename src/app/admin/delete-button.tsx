@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useConfirm } from "@/components/confirm-dialog";
+import { useToast } from "@/components/toast";
+import { apiErrorMessage } from "@/lib/api-error";
 
 export function DeleteButton({
   id,
@@ -21,6 +23,7 @@ export function DeleteButton({
 }) {
   const router = useRouter();
   const confirm = useConfirm();
+  const notify = useToast();
   const [busy, setBusy] = useState(false);
 
   async function onDelete() {
@@ -35,14 +38,14 @@ export function DeleteButton({
     try {
       const res = await fetch(`/api/files/${id}`, { method: "DELETE" });
       if (!res.ok) {
-        window.alert("Échec de la suppression.");
+        notify(await apiErrorMessage(res, "Suppression impossible."));
         setBusy(false);
         return;
       }
       onDeleted?.();
       router.refresh();
     } catch {
-      window.alert("Erreur réseau.");
+      notify("Suppression impossible : erreur réseau.");
       setBusy(false);
     }
   }

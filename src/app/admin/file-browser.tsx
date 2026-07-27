@@ -17,6 +17,8 @@ import { sortFiles, type SortField, type SortDir } from "@/lib/sort";
 import { FilterChips } from "@/components/filter-chips";
 import { SortControl } from "@/components/sort-control";
 import { useConfirm } from "@/components/confirm-dialog";
+import { useToast } from "@/components/toast";
+import { apiErrorMessage } from "@/lib/api-error";
 import { Lightbox } from "@/components/lightbox";
 import { ProjectionPrep } from "@/components/projection-prep";
 import { ProjectionRegie } from "@/components/projection-regie";
@@ -89,6 +91,7 @@ export function FileBrowser({
 }) {
   const router = useRouter();
   const confirm = useConfirm();
+  const notify = useToast();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [shareTarget, setShareTarget] = useState<{
     id: string;
@@ -197,18 +200,51 @@ export function FileBrowser({
     setSelectedId(null);
   }
 
+  /**
+   * Exécute une action sur chaque fichier coché et signale les échecs. Sans ça,
+   * un `Promise.all` de `fetch` « réussit » même quand chaque requête renvoie
+   * 403 : l'opération semblait passée alors que rien n'avait bougé.
+   */
+  async function runOnChecked(
+    ids: string[],
+    action: (id: string) => Promise<Response>,
+    fallback: string,
+  ): Promise<void> {
+    const failures = (
+      await Promise.all(
+        ids.map(async (id) => {
+          try {
+            const res = await action(id);
+            return res.ok ? null : await apiErrorMessage(res, fallback);
+          } catch {
+            return `${fallback} : erreur réseau.`;
+          }
+        }),
+      )
+    ).filter((msg): msg is string => msg !== null);
+
+    if (failures.length === 0) return;
+    notify(
+      failures.length === ids.length
+        ? failures[0]
+        : `${failures.length} fichier${failures.length > 1 ? "s" : ""} sur ${ids.length} — ${failures[0]}`,
+    );
+  }
+
   async function bulkMove(folderId: string | null) {
     if (checked.size === 0) return;
+    const ids = [...checked];
     setBulkBusy(true);
     try {
-      await Promise.all(
-        [...checked].map((id) =>
+      await runOnChecked(
+        ids,
+        (id) =>
           fetch(`/api/files/${id}`, {
             method: "PATCH",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({ folderId }),
           }),
-        ),
+        "Déplacement impossible",
       );
       clear();
       router.refresh();
@@ -245,10 +281,13 @@ export function FileBrowser({
       danger: true,
     });
     if (!ok) return;
+    const ids = [...checked];
     setBulkBusy(true);
     try {
-      await Promise.all(
-        [...checked].map((id) => fetch(`/api/files/${id}`, { method: "DELETE" })),
+      await runOnChecked(
+        ids,
+        (id) => fetch(`/api/files/${id}`, { method: "DELETE" }),
+        "Suppression impossible",
       );
       clear();
       router.refresh();
