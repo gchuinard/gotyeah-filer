@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useConfirm } from "@/components/confirm-dialog";
+import { apiErrorMessage } from "@/lib/api-error";
 
 export type Share = {
   token: string;
@@ -74,8 +75,10 @@ export function ShareManager({
         body: JSON.stringify({ emails: pending }),
       });
       if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        setError(j.error ?? "Échec de la création.");
+        // `apiErrorMessage` gère aussi les réponses en texte brut (« Accès
+        // refusé ») : un `res.json()` seul les perdait au profit d'un message
+        // générique qui masquait la vraie cause.
+        setError(await apiErrorMessage(res, "Échec de la création."));
       } else {
         const s = await res.json();
         setShares((prev) => [
@@ -99,10 +102,16 @@ export function ShareManager({
       danger: true,
     });
     if (!ok) return;
-    const res = await fetch(`/api/shares/${token}`, { method: "DELETE" });
-    if (res.ok) {
-      setShares((prev) => prev.filter((s) => s.token !== token));
-      router.refresh();
+    try {
+      const res = await fetch(`/api/shares/${token}`, { method: "DELETE" });
+      if (res.ok) {
+        setShares((prev) => prev.filter((s) => s.token !== token));
+        router.refresh();
+        return;
+      }
+      setError(await apiErrorMessage(res, "Révocation impossible."));
+    } catch {
+      setError("Révocation impossible : erreur réseau.");
     }
   }
 
