@@ -19,6 +19,20 @@ export function extLabel(name: string): string {
   return ext.slice(0, 4).toUpperCase() || "FIC";
 }
 
+/**
+ * Jour lisible FR : « 8 juin 2026 » (sans heure). Pour les résumés rendus
+ * CÔTÉ SERVEUR (cartes de l'accueil) : le conteneur est en UTC alors que
+ * l'explorateur formate dans le fuseau du navigateur — au jour près, l'écart
+ * ne se voit pas.
+ */
+export function formatDay(ms: number): string {
+  return new Date(ms).toLocaleDateString("fr-FR", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
 /** Date lisible FR : « 8 juin 2026, 14:32 ». */
 export function formatDate(ms: number): string {
   return new Date(ms).toLocaleString("fr-FR", {

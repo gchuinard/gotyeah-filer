@@ -15,11 +15,15 @@ export function FolderBar({
   rootCount,
   totalCount,
   active,
+  showChips = true,
 }: {
   folders: FolderChip[];
   rootCount: number;
   totalCount: number;
-  active: string; // "all" | "none" | <folderId>
+  active: string; // "home" | "all" | "none" | <folderId>
+  /** L'accueil masque les pastilles (la grille de cartes les remplace) et ne
+   *  garde que le bouton « + dossier ». */
+  showChips?: boolean;
 }) {
   const router = useRouter();
   const confirm = useConfirm();
@@ -41,7 +45,7 @@ export function FolderBar({
     navRef.current = {
       keys: ["all", ...folders.map((f) => f.id), "none"],
       hrefs: [
-        "/admin",
+        "/admin?folder=all",
         ...folders.map((f) => `/admin?folder=${f.id}`),
         "/admin?folder=none",
       ],
@@ -55,8 +59,9 @@ export function FolderBar({
       if (e.altKey || e.ctrlKey || e.metaKey) return;
       if (navKeyBlocked()) return;
       const { keys, hrefs, active } = navRef.current;
-      const i = keys.indexOf(active);
-      const cur = i < 0 ? 0 : i;
+      const cur = keys.indexOf(active);
+      // Accueil (« home ») : pas de position dans l'anneau, flèches inertes.
+      if (cur < 0) return;
       const next =
         e.key === "ArrowRight"
           ? Math.min(cur + 1, keys.length - 1)
@@ -129,7 +134,9 @@ export function FolderBar({
         method: "DELETE",
       });
       if (res.ok) {
-        router.push("/admin");
+        // Même route (donc ni FileBrowser ni la régie ne sont démontés) et
+        // c'est là que les fichiers du dossier supprimé viennent d'atterrir.
+        router.push("/admin?folder=none");
         return;
       }
       notify(await apiErrorMessage(res, "Suppression du dossier impossible."));
@@ -141,6 +148,7 @@ export function FolderBar({
   function chip(href: string, label: string, isActive: boolean) {
     return (
       <Link
+        key={href}
         href={href}
         className={`rounded-full border px-3 py-1 text-xs transition-colors ${
           isActive
@@ -156,11 +164,31 @@ export function FolderBar({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        {chip("/admin", `Tous (${totalCount})`, active === "all")}
-        {folders.map((f) =>
-          chip(`/admin?folder=${f.id}`, `${f.name} (${f.count})`, active === f.id),
+        {active !== "home" && (
+          <Link
+            href="/admin"
+            className="rounded-full border border-zinc-800 px-3 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
+          >
+            ← Dossiers
+          </Link>
         )}
-        {chip("/admin?folder=none", `Non classés (${rootCount})`, active === "none")}
+        {showChips && (
+          <>
+            {chip("/admin?folder=all", `Tous (${totalCount})`, active === "all")}
+            {folders.map((f) =>
+              chip(
+                `/admin?folder=${f.id}`,
+                `${f.name} (${f.count})`,
+                active === f.id,
+              ),
+            )}
+            {chip(
+              "/admin?folder=none",
+              `Non classés (${rootCount})`,
+              active === "none",
+            )}
+          </>
+        )}
 
         {creating ? (
           <form onSubmit={createFolder} className="flex items-center gap-1">

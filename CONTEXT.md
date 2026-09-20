@@ -30,6 +30,7 @@ La « connexion » est une **simple porte**, PAS une vraie authentification, et 
 ## Architecture (vue d'ensemble)
 
 - **Front / serveur** : Next.js 16 (App Router, TypeScript), Tailwind CSS v4, dark mode.
+- **Point d'entrée (admin)** : après connexion on arrive sur un **écran de choix de dossiers** (`/admin` nu) — une carte par dossier avec son nombre de fichiers, son poids, son dernier ajout et ses partages, plus une carte « Tous les fichiers » et une tuile vers la télécommande. Avant, `/admin` affichait d'emblée **tous** les fichiers ; « Tous » se demande désormais explicitement (`/admin?folder=all`). Le dossier actif ne vit que dans l'URL (`?folder=`), jamais en base ni en state.
 - **Persistance** : better-sqlite3 (un seul fichier `.db`, schéma créé au boot, pas de Prisma ni migrations).
 - **Fichiers** : stockés sur le système de fichiers (volume Docker monté sur `/data` : `/data/files` pour les fichiers, le `.db` sous `/data`).
 - **Uploads volumineux** : via Route Handler en streaming (PAS de Server Action, à cause de la limite ~1 Mo).
