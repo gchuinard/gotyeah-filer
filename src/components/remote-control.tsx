@@ -41,6 +41,9 @@ const STALE_MS = 35000;
 export function RemoteControl() {
   const [code, setCode] = useState("");
   const [joined, setJoined] = useState(false);
+  // Appairage : vérification du code en cours, et refus à afficher le cas échéant.
+  const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
   const [conn, setConn] = useState<"connecting" | "open" | "error">(
     "connecting",
   );
@@ -191,7 +194,9 @@ export function RemoteControl() {
   useEffect(() => {
     if (!joined) return;
     lastMsgRef.current = Date.now(); // base de fraîcheur dès l'ouverture du flux
-    const es = new EventSource(`/api/projection/stream?code=${codeRef.current}`);
+    const es = new EventSource(
+      `/api/projection/stream?code=${codeRef.current}&role=remote`,
+    );
     esRef.current = es;
     es.onopen = () => {
       lastMsgRef.current = Date.now();
@@ -512,6 +517,44 @@ export function RemoteControl() {
     sendSeq({ type: "goto", index: target }, true);
   }
 
+  /**
+   * Appairage : on n'ouvre la télécommande que si une RÉGIE tient ce code.
+   * Avant, un format valide suffisait — un code inconnu ouvrait donc
+   * l'interface sur une projection vide, en attente d'un état que personne
+   * n'allait envoyer.
+   *
+   * Si la vérification elle-même échoue (réseau, 5xx), on laisse PASSER :
+   * l'outil sert en pleine représentation, mieux vaut une télécommande qui
+   * s'ouvre peut-être pour rien qu'un opérateur bloqué dehors par un hoquet
+   * de réseau. Seul un « non » franc du serveur refuse la connexion.
+   */
+  async function join(e: React.FormEvent) {
+    e.preventDefault();
+    if (!/^\d{4,6}$/.test(code) || joining) return;
+    setJoining(true);
+    setJoinError(null);
+    try {
+      const res = await fetch(`/api/projection/room?code=${code}`, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(4000),
+      });
+      if (res.ok) {
+        const { active } = (await res.json()) as { active?: boolean };
+        if (!active) {
+          setJoinError(
+            "Aucune régie n'utilise ce code. Vérifie le code affiché sur l'ordinateur, et que la télécommande y est bien activée.",
+          );
+          setJoining(false);
+          return;
+        }
+      }
+    } catch {
+      /* Vérification impossible : on ne bloque pas (cf. commentaire ci-dessus). */
+    }
+    codeRef.current = code;
+    setJoined(true);
+  }
+
   if (!joined) {
     return (
       <main className="flex min-h-dvh flex-col items-center justify-center bg-zinc-950 p-6 text-zinc-100">
@@ -520,34 +563,31 @@ export function RemoteControl() {
           <p className="mb-6 text-center text-sm text-zinc-500">
             Saisis le code affiché dans la régie.
           </p>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (/^\d{4,6}$/.test(code)) {
-                codeRef.current = code;
-                setJoined(true);
-              }
-            }}
-            className="flex flex-col gap-3"
-          >
+          <form onSubmit={join} className="flex flex-col gap-3">
             <input
               type="text"
               inputMode="numeric"
               autoFocus
               value={code}
-              onChange={(e) =>
-                setCode(e.target.value.replace(/\D/g, "").slice(0, 6))
-              }
+              onChange={(e) => {
+                setCode(e.target.value.replace(/\D/g, "").slice(0, 6));
+                setJoinError(null);
+              }}
               placeholder="Code"
               className="w-full rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-center text-2xl tracking-[0.4em] tabular-nums text-zinc-100 outline-none focus:border-zinc-500"
             />
             <button
               type="submit"
-              disabled={!/^\d{4,6}$/.test(code)}
+              disabled={!/^\d{4,6}$/.test(code) || joining}
               className="rounded-xl bg-zinc-100 px-4 py-3 text-base font-medium text-zinc-900 transition-colors hover:bg-white disabled:opacity-40"
             >
-              Connecter
+              {joining ? "Vérification…" : "Connecter"}
             </button>
+            {joinError && (
+              <p role="alert" className="text-center text-sm text-red-400">
+                {joinError}
+              </p>
+            )}
           </form>
         </div>
       </main>

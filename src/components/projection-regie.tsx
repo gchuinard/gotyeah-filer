@@ -427,7 +427,11 @@ export function ProjectionRegie({
   useEffect(() => {
     if (!remoteCode) return;
     lastRemoteMsgRef.current = Date.now();
-    const es = new EventSource(`/api/projection/stream?code=${remoteCode}`);
+    // `role=regie` : c'est cette présence qui rend le code valable pour un
+    // téléphone (cf. `hasRegie`, src/lib/projection-relay.ts).
+    const es = new EventSource(
+      `/api/projection/stream?code=${remoteCode}&role=regie`,
+    );
     remoteEsRef.current = es;
     es.onopen = () => {
       lastRemoteMsgRef.current = Date.now();

@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { getSession } from "@/lib/auth";
-import { subscribe } from "@/lib/projection-relay";
+import { subscribe, type SubRole } from "@/lib/projection-relay";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,6 +23,12 @@ export async function GET(request: NextRequest) {
     return new Response("Code invalide", { status: 400 });
   }
 
+  // Rôle de l'abonné : seule la régie s'annonce comme telle, tout le reste est
+  // un téléphone. C'est ce qui permet à `/api/projection/room` de répondre si un
+  // code est actif AVANT que la télécommande ne s'ouvre sur une projection vide.
+  const role: SubRole =
+    request.nextUrl.searchParams.get("role") === "regie" ? "regie" : "remote";
+
   const id = crypto.randomUUID();
   const encoder = new TextEncoder();
   let ping: ReturnType<typeof setInterval> | null = null;
@@ -43,7 +49,7 @@ export async function GET(request: NextRequest) {
       enqueue(`retry: 2000\n\n`);
       // 1er message : l'id attribué (chacun s'exclut des diffusions via cet id).
       enqueue(`data: ${JSON.stringify({ type: "hello", clientId: id })}\n\n`);
-      unsub = subscribe(code, { id, enqueue });
+      unsub = subscribe(code, { id, role, enqueue });
       // Keep-alive = VRAI message `data:` (et non un commentaire `: ping`, que la
       // spec EventSource ne livre JAMAIS à `onmessage`). Côté client il sert de
       // signal de LIVENESS : un SSE figé « mort mais ouvert » (veille mobile,
