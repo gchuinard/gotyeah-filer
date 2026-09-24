@@ -3,6 +3,11 @@
 
 services:
   filer:
+    # Limite mémoire : 256m posés à la main sur le Pi le 28/08/2026, jamais
+    # versionnés, donc à la merci du prochain déploiement ; versionnée ici.
+    # Relevée à 384m le 24/09/2026 : pic mesuré (memory.peak) de 157 Mio, plus
+    # de 60 % de 256m ; 384m est le premier palier au-dessus du double du pic.
+    mem_limit: 384m
     build: .
     image: filer:latest
     container_name: filer
