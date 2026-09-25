@@ -142,9 +142,14 @@ exécute :
 ```bash
 cd /home/pi/sites/gotyeah-filer
 git pull --ff-only origin main
-docker compose up -d --build
+docker compose up -d --build --wait --wait-timeout 120
 docker image prune -f
 ```
+
+Depuis le 25/09/2026, `--wait` attend que le `healthcheck` du compose passe au vert : un
+conteneur qui ne répond pas fait échouer le job, alors qu'avant `up -d` rendait 0 dès que
+le conteneur était créé. Deux déploiements ne tournent plus en même temps : un push
+arrivé pendant un déploiement attend la fin de celui-ci.
 
 **Secrets GitHub à créer** (repo → *Settings → Secrets and variables → Actions*) :
 

@@ -21,6 +21,22 @@ services:
     volumes:
       # Volume nommé monté sur /data : fichiers uploadés + base SQLite.
       - filer_data:/data
+    # Sonde de santé : la porte (`/`) doit répondre 200. Le déploiement attend
+    # cet état (`docker compose up --wait`) et échoue s'il ne vient pas.
+    # 127.0.0.1 et jamais localhost : dans les conteneurs du Pi, localhost
+    # résout d'abord en ::1, où Next n'écoute pas (HOSTNAME=0.0.0.0).
+    # L'image node:24-bookworm-slim n'a ni curl ni wget : on passe par le
+    # fetch de Node.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      # Next standalone est prêt en moins d'une seconde sur le Pi (mesuré le
+      # 25/09) ; 30 s de marge si le Pi est chargé, sondées toutes les 5 s pour
+      # que le déploiement n'attende pas la fin de la marge.
+      start_period: 30s
+      start_interval: 5s
     networks:
       - npm_net
 

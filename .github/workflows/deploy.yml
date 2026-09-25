@@ -28,6 +28,12 @@ jobs:
     needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # Un seul déploiement à la fois, et jamais interrompu : un déploiement coupé
+    # en plein `git pull` ou `docker compose up` laisserait le Pi dans un état
+    # bancal. Un push arrivé entre-temps attend son tour.
+    concurrency:
+      group: deploy-filer
+      cancel-in-progress: false
     steps:
       # Sans empreinte, appleboy/ssh-action désactive la vérification de l'hôte
       # en silence : on refuse donc de déployer si le secret est vide.
@@ -49,9 +55,15 @@ jobs:
           # Empreinte ECDSA du Pi (secret, jamais en clair dans ce dépôt public) :
           # un hôte qui présente une autre clé fait échouer la connexion (24/09).
           fingerprint: ${{ secrets.SSH_HOST_FINGERPRINT }}
+          # `up --build` construit l'image avant de recréer le conteneur : l'ancien
+          # sert le site pendant tout le build. `--wait` attend ensuite que la
+          # sonde du compose passe au vert (plusieurs essais, cf. healthcheck) et
+          # fait échouer le job sinon, au lieu d'un succès sur un conteneur mort.
+          # En cas d'échec, seul l'état des conteneurs est affiché : les journaux
+          # d'un dépôt public sont lisibles par tous, ceux de l'appli n'y vont pas.
           script: |
             set -e
             cd /home/pi/sites/gotyeah-filer
             git pull --ff-only origin main
-            docker compose up -d --build
+            docker compose up -d --build --wait --wait-timeout 120 || { docker compose ps -a; exit 1; }
             docker image prune -f
