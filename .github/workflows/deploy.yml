@@ -29,8 +29,9 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     # Un seul déploiement à la fois, et jamais interrompu : un déploiement coupé
-    # en plein `git pull` ou `docker compose up` laisserait le Pi dans un état
-    # bancal. Un push arrivé entre-temps attend son tour.
+    # en pleine mise à jour de la copie git ou en plein `docker compose up`
+    # laisserait le Pi dans un état bancal. Un push arrivé entre-temps attend son
+    # tour (le Pi tient en plus son propre verrou par projet).
     concurrency:
       group: deploy-filer
       cancel-in-progress: false
@@ -51,19 +52,14 @@ jobs:
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
+          # Clé dédiée à Filer depuis le 25/09/2026. Sur le Pi, authorized_keys la force sur
+          # « /usr/local/sbin/gotyeah-deploy filer » : git fetch, puis deploy/pi-deploy.sh lu
+          # dans origin/main. Elle ne peut que redéployer main (et déposer des résultats
+          # Allure, comme toute clé de déploiement du parc).
           key: ${{ secrets.SSH_KEY }}
           # Empreinte ECDSA du Pi (secret, jamais en clair dans ce dépôt public) :
           # un hôte qui présente une autre clé fait échouer la connexion (24/09).
           fingerprint: ${{ secrets.SSH_HOST_FINGERPRINT }}
-          # `up --build` construit l'image avant de recréer le conteneur : l'ancien
-          # sert le site pendant tout le build. `--wait` attend ensuite que la
-          # sonde du compose passe au vert (plusieurs essais, cf. healthcheck) et
-          # fait échouer le job sinon, au lieu d'un succès sur un conteneur mort.
-          # En cas d'échec, seul l'état des conteneurs est affiché : les journaux
-          # d'un dépôt public sont lisibles par tous, ceux de l'appli n'y vont pas.
-          script: |
-            set -e
-            cd /home/pi/sites/gotyeah-filer
-            git pull --ff-only origin main
-            docker compose up -d --build --wait --wait-timeout 120 || { docker compose ps -a; exit 1; }
-            docker image prune -f
+          # Ignorée par le Pi (commande forcée) : les étapes (avance rapide, build,
+          # attente de la sonde, nettoyage des images) vivent dans deploy/pi-deploy.sh.
+          script: deploy

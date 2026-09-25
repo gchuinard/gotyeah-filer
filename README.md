@@ -136,15 +136,23 @@ Sinon, RAS.
 ## CI/CD (déploiement automatique)
 
 [`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml) : à chaque **push sur
-`main`**, un job `build` (lint + build) puis un job `deploy` qui se connecte au Pi en SSH et
-exécute :
+`main`**, un job `build` (lint + build) puis un job `deploy` qui se connecte au Pi en SSH
+avec une clé dédiée à Filer. Sur le Pi, `authorized_keys` force cette clé sur
+`/usr/local/sbin/gotyeah-deploy filer` : le job n'envoie que `deploy`, le Pi fait un
+`git fetch` dans `/home/pi/sites/gotyeah-filer`, puis exécute
+[`deploy/pi-deploy.sh`](./deploy/pi-deploy.sh) tel qu'il est dans `origin/main` :
 
 ```bash
-cd /home/pi/sites/gotyeah-filer
-git pull --ff-only origin main
+git merge --ff-only "$CIBLE"   # CIBLE = origin/main, déjà récupéré par le git fetch
 docker compose up -d --build --wait --wait-timeout 120
 docker image prune -f
 ```
+
+Les étapes du déploiement se changent donc dans `deploy/pi-deploy.sh`, plus dans le
+workflow. Jusqu'au 25/09/2026, le job envoyait ces commandes lui-même (avec
+`git pull --ff-only origin main`), avec une clé qui ouvrait tout le Pi ; une clé volée ne
+peut plus que redéployer `main` (et déposer des résultats Allure, comme toute clé de
+déploiement du parc).
 
 Depuis le 25/09/2026, `--wait` attend que le `healthcheck` du compose passe au vert : un
 conteneur qui ne répond pas fait échouer le job, alors qu'avant `up -d` rendait 0 dès que
@@ -153,15 +161,18 @@ arrivé pendant un déploiement attend la fin de celui-ci.
 
 **Secrets GitHub à créer** (repo → *Settings → Secrets and variables → Actions*) :
 
-| Secret     | Valeur                                            |
-| ---------- | ------------------------------------------------- |
-| `SSH_HOST` | Hôte / IP du Pi                                   |
-| `SSH_USER` | Utilisateur SSH (ex. `pi`)                        |
-| `SSH_KEY`  | Clé privée SSH (PEM) ayant accès au Pi            |
+| Secret                 | Valeur                                                                                   |
+| ---------------------- | ---------------------------------------------------------------------------------------- |
+| `SSH_HOST`             | Hôte / IP du Pi                                                                          |
+| `SSH_USER`             | Utilisateur SSH (ex. `pi`)                                                               |
+| `SSH_KEY`              | Clé privée SSH dédiée à Filer, forcée sur `gotyeah-deploy filer` dans `authorized_keys`  |
+| `SSH_HOST_FINGERPRINT` | Empreinte SHA256 de la clé d'hôte ECDSA du Pi ; sans elle, le job refuse de déployer     |
 
-> Prérequis : le repo doit déjà être cloné dans `/home/pi/sites/gotyeah-filer`,
-> le `.env` présent, et le réseau `npm_net` existant. Tant que ce n'est pas le cas,
-> le job `deploy` échoue (le job `build`, lui, passe).
+> Prérequis : le repo doit déjà être cloné dans `/home/pi/sites/gotyeah-filer` (le
+> `git fetch` du Pi doit y marcher sans intervention), le `.env` présent, le réseau
+> `npm_net` existant, et la clé publique posée dans `~pi/.ssh/authorized_keys` avec
+> `restrict,command="/usr/local/sbin/gotyeah-deploy filer"`. Tant que ce n'est pas le
+> cas, le job `deploy` échoue (le job `build`, lui, passe).
 
 ## Sauvegarde
 
