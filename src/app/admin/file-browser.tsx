@@ -34,6 +34,10 @@ import { DeleteButton } from "@/app/admin/delete-button";
 import { MoveSelect } from "@/app/admin/move-select";
 import { type Share } from "@/app/admin/share-manager";
 import { ShareDialog } from "@/app/admin/share-dialog";
+import { hasActiveUploads } from "@/lib/upload-queue";
+
+/** Iframe cachée qui reçoit le zip de sélection pendant un envoi. */
+const DOWNLOAD_FRAME = "filer-download-frame";
 
 export type FileItem = {
   id: string;
@@ -267,6 +271,22 @@ export function FileBrowser({
     input.name = "ids";
     input.value = [...checked].join(",");
     form.appendChild(input);
+    // Pendant un envoi, une soumission dans la page même serait une vraie
+    // navigation : popup « quitter la page ? », et Firefox couperait les
+    // requêtes en cours. On la dirige alors vers une iframe cachée (la
+    // réponse est un téléchargement, rien n'y est affiché).
+    if (hasActiveUploads()) {
+      let frame = document.querySelector<HTMLIFrameElement>(
+        `iframe[name="${DOWNLOAD_FRAME}"]`,
+      );
+      if (!frame) {
+        frame = document.createElement("iframe");
+        frame.name = DOWNLOAD_FRAME;
+        frame.hidden = true;
+        document.body.appendChild(frame);
+      }
+      form.target = DOWNLOAD_FRAME;
+    }
     document.body.appendChild(form);
     form.submit();
     form.remove();
@@ -447,6 +467,9 @@ export function FileBrowser({
                     <div className="flex items-center gap-3 pl-[3.25rem] text-xs">
                       <a
                         href={`/api/files/${f.id}`}
+                        // `download` : pas une navigation → pas de popup
+                        // « quitter la page ? » pendant un envoi en cours.
+                        download
                         className="text-zinc-400 transition-colors hover:text-zinc-100"
                       >
                         Télécharger
@@ -499,6 +522,7 @@ export function FileBrowser({
                 <div className="flex flex-wrap items-center gap-2">
                   <a
                     href={`/api/files/${selected.id}`}
+                    download
                     className="rounded-lg bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 transition-colors hover:bg-white"
                   >
                     Télécharger
