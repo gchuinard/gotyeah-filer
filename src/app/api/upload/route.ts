@@ -7,20 +7,11 @@ import { getSession } from "@/lib/auth";
 import { getMaxUploadBytes } from "@/lib/config";
 import { filesDir, insertFile, storedFilePath } from "@/lib/files";
 import { getFolder } from "@/lib/folders";
+import { sanitizeName } from "@/lib/uploads";
 
 // Module natif (better-sqlite3) + fs : runtime Node obligatoire.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-/** Nettoie le nom d'origine (affichage / Content-Disposition uniquement). */
-function sanitizeName(name: string): string {
-  const cleaned = name
-    .replace(/[/\\]/g, "_")
-    .replace(/[\x00-\x1f]/g, "")
-    .trim()
-    .slice(0, 255);
-  return cleaned || "fichier";
-}
 
 /**
  * Upload d'UN fichier, envoyé en corps brut (pas de multipart) avec son nom
