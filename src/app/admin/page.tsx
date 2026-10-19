@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
-import { logout } from "@/app/actions";
 import { getAppUrl } from "@/lib/config";
 import { listFiles } from "@/lib/files";
 import { listFolders } from "@/lib/folders";
 import { listShares, parseAllowedEmails } from "@/lib/shares";
 import { UploadZone } from "@/app/admin/upload-zone";
+import { UploadStatus } from "@/app/admin/upload-status";
+import { LogoutButton } from "@/app/admin/logout-button";
 import { FolderBar } from "@/app/admin/folder-bar";
 import { FolderGrid, type FolderCard } from "@/app/admin/folder-grid";
 import { ShareManager, type Share } from "@/app/admin/share-manager";
@@ -95,19 +96,13 @@ export default async function AdminPage({
   // `layout.tsx` : il s'appliquerait aussi à /admin/projection, la fenêtre
   // posée sur le vidéoprojecteur, qui doit rester sans le moindre chrome.
   const header = (
-    <header className="flex items-center justify-between gap-4 border-b border-zinc-800 px-4 py-4 sm:px-6">
-      <div className="flex flex-col">
+    <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-zinc-800 px-4 py-4 sm:flex-nowrap sm:px-6">
+      <div className="flex shrink-0 flex-col">
         <span className="text-sm font-semibold">Filer · Admin</span>
         <span className="text-xs text-zinc-500">{session.email}</span>
       </div>
-      <form action={logout}>
-        <button
-          type="submit"
-          className="rounded-lg border border-zinc-800 px-3 py-1.5 text-sm text-zinc-300 transition-colors hover:bg-zinc-900"
-        >
-          Se déconnecter
-        </button>
-      </form>
+      <UploadStatus />
+      <LogoutButton />
     </header>
   );
 

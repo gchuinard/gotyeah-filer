@@ -12,6 +12,17 @@ export function formatBytes(bytes: number): string {
   return `${rounded.toLocaleString("fr-FR")} ${units[i]}`;
 }
 
+/** Durée lisible et arrondie : « 45 s », « 12 min », « 1 h 20 min ». */
+export function formatDuration(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  if (s < 60) return `${s} s`;
+  const min = Math.round(s / 60);
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  const rest = min % 60;
+  return rest ? `${h} h ${rest} min` : `${h} h`;
+}
+
 /** Extension en majuscules pour la pastille d'un fichier non-image (ex. « PDF »). */
 export function extLabel(name: string): string {
   const dot = name.lastIndexOf(".");
