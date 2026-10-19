@@ -73,6 +73,20 @@ function createDb(): Database.Database {
     );
 
     CREATE INDEX IF NOT EXISTS idx_shares_file_id ON shares(file_id);
+
+    -- Envois par morceaux en cours (cf. src/lib/uploads.ts). La position de
+    -- reprise n'est PAS stockée : c'est la taille réelle du .part sur disque.
+    CREATE TABLE IF NOT EXISTS uploads (
+      id            TEXT PRIMARY KEY,
+      original_name TEXT NOT NULL,
+      size          INTEGER NOT NULL,
+      mime          TEXT,
+      folder_id     TEXT,
+      fingerprint   TEXT,
+      created_at    INTEGER NOT NULL,
+      updated_at    INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_uploads_fingerprint ON uploads(fingerprint);
   `);
   // NB : l'index sur shares.folder_id est créé APRÈS ensurePolymorphicShares,
   // car une base historique n'a pas encore cette colonne à ce stade.

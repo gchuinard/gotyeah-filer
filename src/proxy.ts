@@ -18,6 +18,10 @@ export async function proxy(request: NextRequest) {
   return NextResponse.next();
 }
 
+// ⚠️ Ne JAMAIS élargir ce matcher à `/api/upload…` : quand le proxy s'exécute,
+// Next met le corps de la requête en tampon et le TRONQUE à 10 Mo
+// (`proxyClientMaxBodySize`) — les morceaux d'upload (16 Mio) seraient coupés.
+// Ces routes vérifient l'auth elles-mêmes.
 export const config = {
   matcher: ["/admin", "/admin/:path*"],
 };
