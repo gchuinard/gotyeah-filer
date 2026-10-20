@@ -9,8 +9,10 @@ range dans des dossiers, puis on les partage à des proches via un lien `/s/{tok
 
 ## Fonctionnalités
 
-- **Admin** (emails listés dans `ADMIN_EMAILS`) : upload (drag & drop, **streaming**, gros
-  fichiers OK), **dossiers** pour ranger, création de **partages** d'un fichier **ou d'un
+- **Admin** (emails listés dans `ADMIN_EMAILS`) : upload (drag & drop) **par morceaux de
+  16 Mio** — des fichiers de **plusieurs dizaines de Go** passent Cloudflare et NPM, avec
+  reprise automatique sur coupure réseau ou redémarrage du serveur, vitesse et temps restant,
+  et avertissement avant de fermer l'onglet pendant un envoi —, **dossiers** pour ranger, création de **partages** d'un fichier **ou d'un
   dossier entier** (emails autorisés → lien + « copier »), révocation, suppression, download,
   **compteur de téléchargements** par fichier, **retouche d'image** (luminosité / contraste /
   saturation / RVB) : soit **« Enregistrer une copie »** (PNG ou JPEG, l'original reste intact),
@@ -33,7 +35,8 @@ range dans des dossiers, puis on les partage à des proches via un lien `/s/{tok
   en **.zip**), et **navigation au clavier** (↑/↓ fichiers, ←/→ dossiers, Entrée/Espace plein écran).
 - **Invité** : via un lien `/s/{token}`, saisit son email ; s'il est autorisé pour ce
   partage (ou s'il est admin), il accède au contenu partagé. Pour un **partage de fichier**,
-  il voit/lit le fichier + download. Pour un **partage de dossier**, il a l'explorateur ci‑dessus
+  il voit/lit le fichier + download (**reprenable** : un téléchargement coupé repart là où il
+  s'était arrêté). Pour un **partage de dossier**, il a l'explorateur ci‑dessus
   + un bouton **« Tout télécharger (.zip) »** (et le zip d'une sélection). Sinon, accès refusé.
   Un partage de dossier est « vivant » : il suit le contenu actuel du dossier.
 - **Sécurité d'affichage** : seuls les types inertes (image hors SVG, audio, vidéo, PDF) sont
@@ -53,7 +56,7 @@ schéma créé au boot) · stockage sur le système de fichiers · Docker (`outp
 | `ADMIN_EMAILS`   |   ✅   | Emails admin, séparés par des virgules (comparaison insensible casse/espaces). |
 | `SESSION_SECRET` |   ✅   | Secret de signature des cookies de session. Long et aléatoire.              |
 | `APP_URL`        |   ✅   | URL publique (ex. `https://filer.gautierchuinard.com`) — sert à bâtir les liens de partage. |
-| `MAX_UPLOAD_MB`  |   —    | Taille max d'un upload, en Mo (défaut `1024`).                              |
+| `MAX_UPLOAD_MB`  |   —    | Taille max d'un fichier, en Mo (défaut `1024` ; prod : `102400` = 100 Go). L'envoi est aussi refusé d'emblée si le disque n'a pas la place. |
 | `DATA_DIR`       |   —    | Répertoire des données (défaut `/data`). À ne définir qu'en dev local.      |
 
 Générer un secret : `openssl rand -base64 48`. Voir [`.env.example`](./.env.example).
@@ -100,7 +103,7 @@ cat > .env <<'EOF'
 ADMIN_EMAILS=gautierchuinard@gmail.com
 SESSION_SECRET=<openssl rand -base64 48>
 APP_URL=https://filer.gautierchuinard.com
-MAX_UPLOAD_MB=1024
+MAX_UPLOAD_MB=102400
 EOF
 
 # 3. build + démarrage
@@ -118,20 +121,25 @@ Créer un **Proxy Host** :
 - **Forward Hostname** : `filer` (le nom du conteneur, joignable sur `npm_net`)
 - **Forward Port** : `3000` · **Scheme** : `http`
 - **SSL** : certificat Let's Encrypt (ou origin Cloudflare), **Force SSL** activé.
-- **Advanced** → augmenter la limite d'upload de NPM, sinon les gros fichiers sont coupés :
-  ```nginx
-  client_max_body_size 0;
-  ```
+- **Advanced** → coller le bloc de [`deploy/npm-advanced.conf`](./deploy/npm-advanced.conf)
+  (dérogation de taille scopée à `/api/upload` + CSP). Depuis l'upload par morceaux, les
+  requêtes d'envoi font au plus 24 Mio et passent même sous le plafond de 25 Mo que ce NPM
+  impose à tous les hôtes ; la dérogation ne sert plus que de marge.
 
 ### Cloudflare (Full Strict)
 
-Le proxy Cloudflare limite le **corps des requêtes à 100 Mo** (plans Free/Pro).
-Si des fichiers **> 100 Mo** sont attendus (bandes-son WAV…), deux options :
+Le proxy Cloudflare limite le **corps des requêtes à 100 Mo** (plans Free/Pro), et Node
+coupe toute requête encore en réception après **300 s**. D'où l'upload **par morceaux de
+16 Mio** (`/api/upload/sessions`) : chaque requête est petite et courte, quelle que soit la
+taille du fichier — pas besoin de passer en DNS-only.
 
-- passer `filer.gautierchuinard.com` en **DNS-only (grey cloud)** pour bypasser le proxy, ou
-- prévoir un upload **chunké**.
+Les téléchargements, eux, ne sont pas plafonnés par Cloudflare. Ils sont **reprenables**
+(`Range` / `If-Range` / `ETag`) et servis en `no-transform` (pas de recompression à la volée,
+`Content-Length` conservé). Servir de très gros fichiers via le plan gratuit peut en principe
+contrevenir aux conditions d'usage de Cloudflare : risque faible pour un usage ponctuel.
 
-Sinon, RAS.
+> ⚠️ **Ne pas pousser sur `main` pendant un gros envoi** : le déploiement redémarre le
+> conteneur. L'envoi reprend tout seul dans l'onglet, mais autant ne pas l'imposer.
 
 ## CI/CD (déploiement automatique)
 
@@ -179,7 +187,9 @@ arrivé pendant un déploiement attend la fin de celui-ci.
 Tout l'état persistant est dans le volume `filer_data` (monté sur `/data`) :
 
 - `/data/files/` — les fichiers uploadés (nommés par UUID),
-- `/data/filer.db` (+ `-wal`, `-shm`) — la base SQLite (métadonnées, dossiers, partages).
+- `/data/filer.db` (+ `-wal`, `-shm`) — la base SQLite (métadonnées, dossiers, partages),
+- `/data/uploads/` — les envois **en cours** (fichiers partiels `.part`, purgés au bout de
+  6 h d'inactivité) : **inutile à sauvegarder**, à exclure.
 
 Sauvegarder ce volume suffit à tout restaurer.
 

@@ -172,3 +172,25 @@
       extrapolé localement, affiché uniquement si l'auto-avance est armée (la régie pousse
       `advanceMs` + `advanceActive` dans `RemoteState`). Revue adversariale 2 angles → 1 défaut
       (slot d'attente unique) corrigé.
+- [x] **Gros fichiers (jusqu'à 100 Go) : upload par morceaux + téléchargement reprenable**
+      (3 phases avec gate, branche `feat/gros-fichiers`). Constat : un fichier envoyé d'un bloc
+      bute sur Cloudflare (100 Mo), NPM (25 Mo hors dérogation) et le `requestTimeout` de Node
+      (300 s, mesuré : 408 à 300,1 s) — `MAX_UPLOAD_MB` seul n'y pouvait rien.
+      **(1) Serveur** — sessions `/api/upload/sessions` : morceaux de 16 Mio ajoutés à un
+      `.part` sous `/data/uploads`, position = taille réelle du partiel, verrou par session,
+      finalisation transactionnelle idempotente, purge 6 h, contrôle de place disque sérialisé.
+      Harnais 13 scénarios dont 5 Gio (> 2³²) à SHA-256 identique malgré abandon en plein
+      morceau et 2 redémarrages serveur. Revue adversariale → 1 défaut (surréservation disque
+      par ouvertures simultanées) corrigé.
+      **(2) Client** — file hors React (l'envoi survit au changement de vue), bandeau header
+      (progression + échecs), reprise auto (backoff, chien de garde, relecture de la position),
+      popup natif avant fermeture + bandeau explicite, `DELETE` keepalive au départ de la page,
+      Wake Lock, déconnexion confirmée, liens `download` + zip en iframe pendant un envoi.
+      Vérifié en navigateur (build prod) : coupure serveur → reprise sans rechargement,
+      `window.stop()` → reprise. Revue adversariale → 7 défauts corrigés.
+      **(3) Téléchargement** — `Range`/`If-Range`/ETag fort sur l'attachment (reprise `curl -C -`
+      d'un 5 Gio à SHA-256 identique, compté une fois), `HEAD` explicite (plus de fuite de
+      descripteur ni de comptage), `no-transform` + `X-Accel-Buffering: no`, zip : entrées
+      > 64 Mio stockées sans deflate (ZIP64 OK).
+      **Ops** : `MAX_UPLOAD_MB=102400` dans le `.env` du Pi AVANT le déploiement ; vérifier la
+      place disque ; exclure `/data/uploads` des sauvegardes ; ne pas déployer pendant un envoi.
