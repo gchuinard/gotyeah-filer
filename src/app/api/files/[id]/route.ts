@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { createReadStream, createWriteStream } from "node:fs";
+import { createReadStream, createWriteStream, type Stats } from "node:fs";
 import { mkdir, rename, stat, unlink } from "node:fs/promises";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -18,6 +18,12 @@ import {
   updateFileBlob,
 } from "@/lib/files";
 import { getFolder } from "@/lib/folders";
+import {
+  ifRangeAllows,
+  parseRange,
+  validators,
+  type Validators,
+} from "@/lib/http-range";
 import { isInlineSafe, mediaContentType } from "@/lib/media";
 
 export const runtime = "nodejs";
@@ -27,20 +33,21 @@ function toWeb(stream: import("node:fs").ReadStream): ReadableStream<Uint8Array>
   return Readable.toWeb(stream) as unknown as ReadableStream<Uint8Array>;
 }
 
-/**
- * Sert un fichier en streaming, après contrôle d'accès (admin OU invité
- * autorisé pour le partage de ce fichier précis — cf. `canAccessFile`).
- *
- * Deux modes :
- * - `?inline=1` : aperçu / lecture média (Content-Disposition: inline, cacheable,
- *   requêtes Range honorées pour le seek audio) → NE compte PAS comme un
- *   téléchargement.
- * - défaut : pièce jointe (attachment, no-store) → incrémente le compteur.
- */
-export async function GET(
+type Served = {
+  id: string;
+  path: string;
+  size: number;
+  inline: boolean;
+  validators: Validators;
+  headers: Record<string, string>;
+};
+
+/** Contrôle d'accès + fichier sur disque + en-têtes communs à GET et HEAD.
+ * Renvoie la réponse d'erreur à servir telle quelle si quelque chose manque. */
+async function prepare(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+  params: Promise<{ id: string }>,
+): Promise<Served | Response> {
   const { id } = await params;
   const session = await getSession();
 
@@ -53,9 +60,9 @@ export async function GET(
   if (!file) return new Response("Introuvable", { status: 404 });
 
   const path = storedFilePath(file.stored_name);
-  let size: number;
+  let st: Stats;
   try {
-    size = (await stat(path)).size;
+    st = await stat(path);
   } catch {
     return new Response("Fichier manquant sur le disque", { status: 404 });
   }
@@ -72,51 +79,107 @@ export async function GET(
     .replace(/[^\x20-\x7e]/g, "_")
     .replace(/"/g, "'");
 
-  const baseHeaders: Record<string, string> = {
+  const v = validators(st);
+  const headers: Record<string, string> = {
     "Content-Type": mediaContentType(file.mime, file.original_name),
     "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(
       file.original_name,
     )}`,
     // Le MIME peut être déduit de l'extension : on empêche tout sniffing.
     "X-Content-Type-Options": "nosniff",
-    // Aperçu : cacheable brièvement. Download : jamais stocké.
-    "Cache-Control": inline ? "private, max-age=300" : "private, no-store",
+    // Aperçu : cacheable brièvement. Download : jamais stocké. `no-transform`
+    // dans les deux cas : sinon Next (et Cloudflare) compressent à la volée les
+    // types « texte » (.csv, .json, .tar…) — sur le Pi, pour 48 Go — en
+    // supprimant Content-Length, ce qui casse la progression et la reprise.
+    "Cache-Control": inline
+      ? "private, max-age=300, no-transform"
+      : "private, no-store, no-transform",
     "Accept-Ranges": "bytes",
+    ETag: v.etag,
+    "Last-Modified": v.lastModified,
+    // Nginx (NPM) diffuse au lieu de mettre jusqu'à 1 Gio en tampon sur son
+    // disque par téléchargement.
+    "X-Accel-Buffering": "no",
   };
 
-  // Lecture média (inline) : on honore les requêtes Range pour permettre le
-  // seek dans un audio. Le download (attachment) reste un flux complet, compté.
-  const range = inline ? request.headers.get("range") : null;
-  if (range) {
-    const m = /^bytes=(\d*)-(\d*)$/.exec(range.trim());
-    if (m && (m[1] || m[2])) {
-      const start = m[1] ? parseInt(m[1], 10) : 0;
-      let end = m[2] ? parseInt(m[2], 10) : size - 1;
-      if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= size) {
-        return new Response("Range non satisfiable", {
-          status: 416,
-          headers: { "Content-Range": `bytes */${size}` },
-        });
-      }
-      end = Math.min(end, size - 1);
-      return new Response(toWeb(createReadStream(path, { start, end })), {
-        status: 206,
-        headers: {
-          ...baseHeaders,
-          "Content-Range": `bytes ${start}-${end}/${size}`,
-          "Content-Length": String(end - start + 1),
-        },
-      });
-    }
+  return { id, path, size: st.size, inline, validators: v, headers };
+}
+
+/**
+ * Sert un fichier en streaming, après contrôle d'accès (admin OU invité
+ * autorisé pour le partage de ce fichier précis — cf. `canAccessFile`).
+ *
+ * Deux modes :
+ * - `?inline=1` : aperçu / lecture média (Content-Disposition: inline,
+ *   cacheable) → NE compte PAS comme un téléchargement.
+ * - défaut : pièce jointe (attachment, no-store) → compte un téléchargement.
+ *
+ * Les requêtes `Range` (une plage) sont honorées dans LES DEUX modes : seek
+ * audio/vidéo, et reprise d'un téléchargement coupé (essentiel pour un fichier
+ * de plusieurs dizaines de Go), protégée par `If-Range` contre un fichier qui
+ * aurait changé entre-temps.
+ */
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const served = await prepare(request, params);
+  if (served instanceof Response) return served;
+  const { id, path, size, inline, headers } = served;
+
+  const range = ifRangeAllows(request.headers.get("if-range"), served.validators)
+    ? parseRange(request.headers.get("range"), size)
+    : { kind: "none" as const };
+
+  if (range.kind === "unsatisfiable") {
+    return new Response("Range non satisfiable", {
+      status: 416,
+      headers: { "Content-Range": `bytes */${size}`, "Cache-Control": "no-store" },
+    });
   }
 
-  // Seul un vrai téléchargement (pas un aperçu/lecture inline) incrémente le compteur.
-  if (!inline) {
+  // Un téléchargement compte UNE fois : pas une reprise (plage qui ne démarre
+  // pas à 0), pas un aperçu inline.
+  const start = range.kind === "range" ? range.start : 0;
+  if (!inline && start === 0) {
     incrementDownloadCount(id);
   }
 
+  if (range.kind === "range") {
+    return new Response(
+      toWeb(createReadStream(path, { start: range.start, end: range.end })),
+      {
+        status: 206,
+        headers: {
+          ...headers,
+          "Content-Range": `bytes ${range.start}-${range.end}/${size}`,
+          "Content-Length": String(range.end - range.start + 1),
+        },
+      },
+    );
+  }
+
   return new Response(toWeb(createReadStream(path)), {
-    headers: { ...baseHeaders, "Content-Length": String(size) },
+    headers: { ...headers, "Content-Length": String(size) },
+  });
+}
+
+/**
+ * En-têtes seuls (taille, ETag…), sans ouvrir le fichier ni compter de
+ * téléchargement. Explicite car Next, sinon, sert HEAD avec le GET : il jette
+ * le corps sans annuler le flux (descripteur ouvert laissé en plan) et le
+ * compteur s'incrémente pour rien.
+ */
+export async function HEAD(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const served = await prepare(request, params);
+  if (served instanceof Response) {
+    return new Response(null, { status: served.status });
+  }
+  return new Response(null, {
+    headers: { ...served.headers, "Content-Length": String(served.size) },
   });
 }
 
