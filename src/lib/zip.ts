@@ -7,6 +7,9 @@ import {
   type FileRow,
 } from "@/lib/files";
 
+/** Au-delà de cette taille, une entrée est stockée telle quelle (sans deflate). */
+const ZIP_DEFLATE_MAX_BYTES = 64 * 1024 * 1024;
+
 /** Rend un nom d'entrée unique dans l'archive (suffixe « (n) » si collision). */
 function uniqueName(name: string, used: Set<string>): string {
   if (!used.has(name.toLowerCase())) {
@@ -44,21 +47,26 @@ export async function zipFilesResponse(
     await Promise.all(
       files.map(async (f) => {
         try {
-          await stat(storedFilePath(f.stored_name));
-          return f;
+          const { size } = await stat(storedFilePath(f.stored_name));
+          return { file: f, size };
         } catch {
           return null;
         }
       }),
     )
-  ).filter((f): f is FileRow => f !== null);
+  ).filter((p): p is { file: FileRow; size: number } => p !== null);
 
   if (present.length === 0) return null;
 
   const zip = new ZipFile();
   const used = new Set<string>();
-  for (const f of present) {
-    zip.addFile(storedFilePath(f.stored_name), uniqueName(f.original_name, used));
+  for (const { file: f, size } of present) {
+    // Les gros fichiers sont STOCKÉS sans deflate : souvent déjà compressés
+    // (vidéo, archives), et dégonfler 48 Go sur le Pi prendrait des heures de
+    // CPU pour rien. Au-delà de 4 Go, yazl passe seul en ZIP64.
+    zip.addFile(storedFilePath(f.stored_name), uniqueName(f.original_name, used), {
+      compress: size <= ZIP_DEFLATE_MAX_BYTES,
+    });
     incrementDownloadCount(f.id);
   }
   zip.end();
@@ -78,7 +86,10 @@ export async function zipFilesResponse(
         zipName,
       )}`,
       "X-Content-Type-Options": "nosniff",
-      "Cache-Control": "private, no-store",
+      // Pas de recompression à la volée par un intermédiaire, et pas de mise
+      // en tampon disque par nginx (NPM) : on diffuse.
+      "Cache-Control": "private, no-store, no-transform",
+      "X-Accel-Buffering": "no",
     },
   });
 }

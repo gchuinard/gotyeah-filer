@@ -32,3 +32,9 @@ export async function GET(
   );
   return resp ?? new Response("Aucun fichier disponible", { status: 404 });
 }
+
+/** Explicite : sinon Next sert HEAD avec le GET, qui construirait toute
+ * l'archive et compterait un téléchargement par fichier, pour rien. */
+export function HEAD() {
+  return new Response(null, { status: 405, headers: { Allow: "GET" } });
+}
