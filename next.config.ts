@@ -14,8 +14,11 @@ const securityHeaders = [
   { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
   { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
-  // Anti-clickjacking (le bord peut aussi porter frame-ancestors via la CSP).
-  { key: "X-Frame-Options", value: "DENY" },
+  // Anti-clickjacking : SAMEORIGIN, pas DENY — l'aperçu PDF affiche
+  // `/api/files/<id>?inline=1` dans une <iframe> de NOTRE origine (explorateur,
+  // galerie invité, lightbox, écran de projection) ; DENY le laissait blanc.
+  // Le bord porte la même règle en CSP (`frame-ancestors 'self'`).
+  { key: "X-Frame-Options", value: "SAMEORIGIN" },
   // Anti-MIME-sniffing sur TOUTES les réponses (pages + JS/CSS statiques).
   { key: "X-Content-Type-Options", value: "nosniff" },
   // Évite la fuite d'URL interne vers les tiers.
