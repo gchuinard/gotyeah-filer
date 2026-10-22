@@ -122,7 +122,7 @@ Créer un **Proxy Host** :
 - **Forward Port** : `3000` · **Scheme** : `http`
 - **SSL** : certificat Let's Encrypt (ou origin Cloudflare), **Force SSL** activé.
 - **Advanced** → coller le bloc de [`deploy/npm-advanced.conf`](./deploy/npm-advanced.conf)
-  (dérogation de taille scopée à `/api/upload` + CSP). Depuis l'upload par morceaux, les
+  (dérogation de taille scopée à `/api/upload`, avec `proxy_request_buffering on`). La CSP n'est **pas** dans NPM : l'app la pose elle-même (`next.config.ts`, en production). Depuis l'upload par morceaux, les
   requêtes d'envoi font au plus 24 Mio et passent même sous le plafond de 25 Mo que ce NPM
   impose à tous les hôtes ; la dérogation ne sert plus que de marge.
 
