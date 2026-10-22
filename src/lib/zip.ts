@@ -7,8 +7,8 @@ import {
   type FileRow,
 } from "@/lib/files";
 
-/** Au-delà de cette taille, une entrée est stockée telle quelle (sans deflate). */
-const ZIP_DEFLATE_MAX_BYTES = 64 * 1024 * 1024;
+/** Au-delà de cette taille, une entrée est compressée au niveau le plus RAPIDE. */
+const ZIP_FAST_DEFLATE_FROM_BYTES = 64 * 1024 * 1024;
 
 /** Rend un nom d'entrée unique dans l'archive (suffixe « (n) » si collision). */
 function uniqueName(name: string, used: Set<string>): string {
@@ -61,11 +61,16 @@ export async function zipFilesResponse(
   const zip = new ZipFile();
   const used = new Set<string>();
   for (const { file: f, size } of present) {
-    // Les gros fichiers sont STOCKÉS sans deflate : souvent déjà compressés
-    // (vidéo, archives), et dégonfler 48 Go sur le Pi prendrait des heures de
-    // CPU pour rien. Au-delà de 4 Go, yazl passe seul en ZIP64.
+    // Gros fichiers : deflate niveau 1 (le plus rapide) plutôt que 6 — souvent
+    // déjà compressés (vidéo, archives), la compression ne gagne rien. Mesuré
+    // sur le Pi : ~32 Mio/s, bien au-dessus du débit montant de la box
+    // (~5,5 Mio/s) qui borne de toute façon un téléchargement distant.
+    // PAS de stockage brut (niveau 0) : yazl l'écrit avec un « data
+    // descriptor » (tailles en fin d'entrée), que les décompresseurs en flux
+    // de type Java/Android `ZipInputStream` ne savent pas délimiter ; un flux
+    // deflate, lui, se termine tout seul. Au-delà de 4 Go, ZIP64 automatique.
     zip.addFile(storedFilePath(f.stored_name), uniqueName(f.original_name, used), {
-      compress: size <= ZIP_DEFLATE_MAX_BYTES,
+      compressionLevel: size < ZIP_FAST_DEFLATE_FROM_BYTES ? 6 : 1,
     });
     incrementDownloadCount(f.id);
   }
