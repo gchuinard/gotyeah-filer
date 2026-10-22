@@ -191,6 +191,12 @@
       **(3) Téléchargement** — `Range`/`If-Range`/ETag fort sur l'attachment (reprise `curl -C -`
       d'un 5 Gio à SHA-256 identique, compté une fois), `HEAD` explicite (plus de fuite de
       descripteur ni de comptage), `no-transform` + `X-Accel-Buffering: no`, zip : entrées
-      > 64 Mio stockées sans deflate (ZIP64 OK).
+      ≥ 64 Mio en deflate niveau 1 (ZIP64 OK ; d'abord stockées brutes, corrigé après revue :
+      illisibles en flux par Java/Android `ZipInputStream`).
+      **Passe de contrôle (22/10)** : envoi réel de 320 Mio en prod à travers Cloudflare + NPM
+      (20 × 16 Mio en 200, retéléchargement identique, Range/If-Range/HEAD, compteur = 1) ;
+      débit montant mesuré ~5,5 Mio/s (box). Revue adversariale Phase 3 → zip corrigé, et un
+      bug ANTÉRIEUR révélé : aperçus PDF blancs (`X-Frame-Options: DENY` + CSP NPM
+      `frame-ancestors 'none'`) → `SAMEORIGIN` / `'self'`.
       **Ops** : `MAX_UPLOAD_MB=102400` dans le `.env` du Pi AVANT le déploiement ; vérifier la
       place disque ; exclure `/data/uploads` des sauvegardes ; ne pas déployer pendant un envoi.
