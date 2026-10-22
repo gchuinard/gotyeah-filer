@@ -10,7 +10,7 @@ range dans des dossiers, puis on les partage à des proches via un lien `/s/{tok
 ## Fonctionnalités
 
 - **Admin** (emails listés dans `ADMIN_EMAILS`) : upload (drag & drop) **par morceaux de
-  16 Mio** — des fichiers de **plusieurs dizaines de Go** passent Cloudflare et NPM, avec
+  16 Mio, plusieurs en parallèle** — des fichiers de **plusieurs dizaines de Go** passent Cloudflare et NPM, avec
   reprise automatique sur coupure réseau ou redémarrage du serveur, vitesse et temps restant,
   et avertissement avant de fermer l'onglet pendant un envoi —, **dossiers** pour ranger, création de **partages** d'un fichier **ou d'un
   dossier entier** (emails autorisés → lien + « copier »), révocation, suppression, download,
@@ -132,7 +132,9 @@ Créer un **Proxy Host** :
 Le proxy Cloudflare limite le **corps des requêtes à 100 Mo** (plans Free/Pro), et Node
 coupe toute requête encore en réception après **300 s**. D'où l'upload **par morceaux de
 16 Mio** (`/api/upload/sessions`) : chaque requête est petite et courte, quelle que soit la
-taille du fichier — pas besoin de passer en DNS-only.
+taille du fichier — pas besoin de passer en DNS-only. Cloudflare reçoit chaque morceau en
+entier avant de le transmettre : l'interface en envoie donc **4 à la fois** par fichier, pour
+que ces attentes se recouvrent au lieu de s'additionner.
 
 Les téléchargements, eux, ne sont pas plafonnés par Cloudflare. Ils sont **reprenables**
 (`Range` / `If-Range` / `ETag`) et servis en `no-transform` (pas de recompression à la volée,

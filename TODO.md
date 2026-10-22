@@ -212,3 +212,19 @@
       fenêtre Partager. Colonnes `shares.public` / `shares.expires_at` ajoutées au boot.
       30 tests curl (entrée, Range, cloisonnement, cookies bloqués, admin préservé, expiration,
       révocation, dossier + zip, partage e-mail inchangé).
+- [x] **Upload parallèle** (branche `feat/upload-parallele`). Constat : depuis Chrome, l'envoi
+      plafonnait à ~13-15 Mio/s via Cloudflare, qui reçoit chaque morceau EN ENTIER avant de le
+      transmettre — en séquentiel ces attentes s'additionnent. Mode **parallèle** à côté du
+      séquentiel (gardé pour un onglet chargé avant la mise à jour) : morceaux **numérotés**
+      (`x-upload-chunk`) écrits à leur place, 4 en vol par fichier, 8 au total ; table
+      `upload_chunks` (reçus en entier) + colonne `uploads.chunk_size`, registre des écritures en
+      cours au lieu du verrou, finalisation par le dernier morceau noté. Harnais (petit, 2 Gio,
+      redémarrages serveur en plein envoi et pendant la finalisation) et navigateur (coupure →
+      « reconnexion » seulement quand toutes les voies attendent → reprise, SHA-256 identique).
+      Mesures prod depuis le PC (Node, sessions de test) : 1 flux 21-45 Mio/s, 4-8 flux
+      25-86 Mio/s (très variable) ; téléchargement ~96 Mio/s sur un flux. Relecture puis revue
+      multi-agents (4 angles + vérification adverse) → 16 défauts, tous corrigés, dont : durabilité
+      sur coupure de courant (`datasync` par morceau, `fsync` + `synchronous = FULL` à la
+      finalisation, reprise d'une finalisation interrompue), « Réessayer » bloqué à 100 % après
+      une finalisation en échec, erreur terminale qui n'arrêtait pas les autres voies, lots de
+      petits fichiers moins parallèles qu'avant, retour arrière du serveur mal signalé.
