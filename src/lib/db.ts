@@ -115,6 +115,12 @@ function createDb(): Database.Database {
     "CREATE INDEX IF NOT EXISTS idx_shares_folder_id ON shares(folder_id);",
   );
 
+  // Lien public (ajouté après coup) : `public` = 1 → entrée sans e-mail ;
+  // `expires_at` = fin de validité (ms), NULL = sans expiration. APRÈS la
+  // reconstruction ci-dessus, qui ne connaît pas ces colonnes.
+  ensureColumn(db, "shares", "public", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "shares", "expires_at", "INTEGER");
+
   return db;
 }
 

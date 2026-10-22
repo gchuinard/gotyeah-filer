@@ -21,11 +21,13 @@ const EXPIRATION = "30d";
 export type Role = "admin" | "guest";
 
 export type SessionPayload = {
-  /** Email saisi à la porte (normalisé). */
+  /** Email saisi à la porte (normalisé), ou « lien-public ». */
   email: string;
   role: Role;
-  /** Token du partage pour un invité (Phase 4). Absent pour un admin. */
-  share?: string;
+  /** Jetons des partages ouverts par un invité (absent pour un admin). Une
+   * LISTE : quelqu'un qui reçoit plusieurs liens garde l'accès à chacun au lieu
+   * de perdre le précédent à chaque nouveau lien. Bornée (cf. `withShare`). */
+  shares?: string[];
 };
 
 /** Signe un JWT HS256 contenant le payload de session (exp à 30 jours). */
@@ -46,18 +48,46 @@ export async function verifySession(
     const { payload } = await jwtVerify(token, getSessionSecret(), {
       algorithms: [ALG],
     });
-    const { email, role, share } = payload as Record<string, unknown>;
+    const { email, role, share, shares } = payload as Record<string, unknown>;
     if (typeof email !== "string" || (role !== "admin" && role !== "guest")) {
       return null;
     }
+    // `shares` (liste) ; `share` (un seul jeton) = cookies posés avant la liste,
+    // toujours acceptés.
+    const tokens = [
+      ...(Array.isArray(shares)
+        ? shares.filter((s): s is string => typeof s === "string")
+        : []),
+      ...(typeof share === "string" ? [share] : []),
+    ];
     return {
       email,
       role,
-      ...(typeof share === "string" ? { share } : {}),
+      ...(tokens.length > 0 ? { shares: [...new Set(tokens)] } : {}),
     };
   } catch {
     return null;
   }
+}
+
+/** Partages qu'un invité peut garder ouverts en même temps (taille du cookie). */
+export const MAX_GUEST_SHARES = 20;
+
+/**
+ * Liste de partages d'un invité après l'ouverture de `token` : ceux qu'il avait
+ * déjà (`keep` filtre les jetons encore valides), puis celui-ci en dernier ;
+ * les plus anciens sortent au-delà de `MAX_GUEST_SHARES`.
+ */
+export function withShare(
+  session: SessionPayload | null,
+  token: string,
+  keep: (token: string) => boolean = () => true,
+): string[] {
+  const previous =
+    session?.role === "guest"
+      ? (session.shares ?? []).filter((t) => t !== token && keep(t))
+      : [];
+  return [...previous, token].slice(-MAX_GUEST_SHARES);
 }
 
 /** Options du cookie de session : httpOnly, secure (en prod), sameSite lax. */

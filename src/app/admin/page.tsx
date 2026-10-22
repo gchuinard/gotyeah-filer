@@ -4,7 +4,7 @@ import { getSession } from "@/lib/auth";
 import { getAppUrl } from "@/lib/config";
 import { listFiles } from "@/lib/files";
 import { listFolders } from "@/lib/folders";
-import { listShares, parseAllowedEmails } from "@/lib/shares";
+import { listShares, toShareDto } from "@/lib/shares";
 import { UploadZone } from "@/app/admin/upload-zone";
 import { UploadStatus } from "@/app/admin/upload-status";
 import { LogoutButton } from "@/app/admin/logout-button";
@@ -77,11 +77,7 @@ export default async function AdminPage({
   const sharesByFile = new Map<string, Share[]>();
   const sharesByFolder = new Map<string, Share[]>();
   for (const s of listShares()) {
-    const entry: Share = {
-      token: s.token,
-      emails: parseAllowedEmails(s),
-      created_at: s.created_at,
-    };
+    const entry: Share = toShareDto(s);
     if (s.file_id) {
       sharesByFile.set(s.file_id, [...(sharesByFile.get(s.file_id) ?? []), entry]);
     } else if (s.folder_id) {

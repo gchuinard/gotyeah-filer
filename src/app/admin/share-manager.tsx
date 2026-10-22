@@ -4,12 +4,18 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useConfirm } from "@/components/confirm-dialog";
 import { apiErrorMessage } from "@/lib/api-error";
+import { formatDate } from "@/lib/format";
+import type { ShareDto } from "@/lib/shares";
 
-export type Share = {
-  token: string;
-  emails: string[];
-  created_at: number;
-};
+export type Share = ShareDto;
+
+/** Durées proposées pour un lien public ("never" = sans expiration). */
+const PUBLIC_DURATIONS = [
+  { value: "1", label: "1 jour" },
+  { value: "7", label: "7 jours" },
+  { value: "30", label: "30 jours" },
+  { value: "never", label: "Sans expiration" },
+] as const;
 
 /** Validation de format légère (le vrai contrôle reste la « porte » à l'accès). */
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -38,9 +44,37 @@ export function ShareManager({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [duration, setDuration] = useState<string>("7");
 
   const base =
     appUrl || (typeof window !== "undefined" ? window.location.origin : "");
+
+  /** Lien public : créé puis copié d'un clic, prêt à coller dans un message. */
+  async function createPublic() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          public: true,
+          days: duration === "never" ? null : Number(duration),
+        }),
+      });
+      if (!res.ok) {
+        setError(await apiErrorMessage(res, "Échec de la création du lien."));
+      } else {
+        const s = (await res.json()) as Share;
+        setShares((prev) => [s, ...prev]);
+        await copy(s.token);
+        router.refresh();
+      }
+    } catch {
+      setError("Erreur réseau.");
+    }
+    setBusy(false);
+  }
 
   function addEmail(e: React.FormEvent) {
     e.preventDefault();
@@ -80,11 +114,8 @@ export function ShareManager({
         // générique qui masquait la vraie cause.
         setError(await apiErrorMessage(res, "Échec de la création."));
       } else {
-        const s = await res.json();
-        setShares((prev) => [
-          { token: s.token, emails: s.emails, created_at: s.created_at },
-          ...prev,
-        ]);
+        const s = (await res.json()) as Share;
+        setShares((prev) => [s, ...prev]);
         setPending([]);
         router.refresh();
       }
@@ -153,15 +184,61 @@ export function ShareManager({
                   </button>
                 </div>
               </div>
-              {s.emails.length > 0 && (
-                <span className="truncate text-zinc-500">
-                  {s.emails.join(", ")}
+              {s.public ? (
+                <span
+                  className={`truncate ${s.expired ? "text-red-400" : "text-sky-300"}`}
+                >
+                  Lien public ·{" "}
+                  {s.expired
+                    ? "expiré"
+                    : s.expires_at
+                      ? `expire le ${formatDate(s.expires_at)}`
+                      : "sans expiration"}
                 </span>
+              ) : (
+                s.emails.length > 0 && (
+                  <span className="truncate text-zinc-500">
+                    {s.emails.join(", ")}
+                  </span>
+                )
               )}
             </li>
           ))}
         </ul>
       )}
+
+      <div className="flex flex-col gap-2 rounded-md border border-zinc-800 bg-zinc-900/40 px-3 py-2">
+        <span className="text-xs text-zinc-300">
+          <span className="font-medium">Lien public</span> — sans e-mail :
+          quiconque a le lien y accède.
+        </span>
+        <div className="flex gap-2">
+          <select
+            value={duration}
+            onChange={(e) => setDuration(e.target.value)}
+            aria-label="Durée de validité du lien"
+            className="min-w-0 flex-1 rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-xs text-zinc-100 outline-none focus:border-zinc-500"
+          >
+            {PUBLIC_DURATIONS.map((d) => (
+              <option key={d.value} value={d.value}>
+                {d.label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={createPublic}
+            disabled={busy}
+            className="shrink-0 rounded-md bg-sky-200 px-3 py-1.5 text-xs font-medium text-zinc-900 transition-colors hover:bg-sky-100 disabled:opacity-50"
+          >
+            {busy ? "…" : "Créer et copier le lien"}
+          </button>
+        </div>
+      </div>
+
+      <span className="text-[11px] uppercase tracking-wide text-zinc-500">
+        ou réservé à des adresses e-mail
+      </span>
 
       <div className="flex flex-col gap-2">
         {pending.length > 0 && (

@@ -4,8 +4,10 @@ import { getAppUrl } from "@/lib/config";
 import { getFolder } from "@/lib/folders";
 import {
   createFolderShare,
+  createPublicShare,
   normalizeEmails,
-  parseAllowedEmails,
+  parsePublicLinkDays,
+  toShareDto,
 } from "@/lib/shares";
 
 export const runtime = "nodejs";
@@ -13,7 +15,9 @@ export const dynamic = "force-dynamic";
 
 /**
  * Crée un partage pour un dossier entier (admin uniquement).
- * Corps JSON : { emails: string[] | "a@x, b@y" }.
+ * Corps JSON : { emails: string[] | "a@x, b@y" }, OU { public: true, days }
+ * pour un lien public (sans e-mail ; `days` ∈ 1 | 7 | 30, null = sans
+ * expiration, absent = 7).
  */
 export async function POST(
   request: NextRequest,
@@ -36,6 +40,20 @@ export async function POST(
     return Response.json({ error: "JSON invalide." }, { status: 400 });
   }
 
+  const base = getAppUrl();
+
+  if ((body as { public?: unknown })?.public === true) {
+    const days = parsePublicLinkDays((body as { days?: unknown }).days);
+    if (days === undefined) {
+      return Response.json({ error: "Durée invalide." }, { status: 400 });
+    }
+    const share = createPublicShare({ folderId: id }, days);
+    return Response.json(
+      { ...toShareDto(share), url: base ? `${base}/s/${share.token}` : null },
+      { status: 201 },
+    );
+  }
+
   const rawEmails = (body as { emails?: unknown })?.emails;
   const emails = Array.isArray(rawEmails)
     ? rawEmails.map(String)
@@ -52,15 +70,9 @@ export async function POST(
   }
 
   const share = createFolderShare(id, normalized);
-  const base = getAppUrl();
 
   return Response.json(
-    {
-      token: share.token,
-      emails: parseAllowedEmails(share),
-      created_at: share.created_at,
-      url: base ? `${base}/s/${share.token}` : null,
-    },
+    { ...toShareDto(share), url: base ? `${base}/s/${share.token}` : null },
     { status: 201 },
   );
 }

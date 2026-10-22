@@ -8,9 +8,27 @@ export type ShareRow = {
   file_id: string | null;
   /** Cible dossier (exclusif avec file_id). */
   folder_id: string | null;
-  /** JSON array d'emails normalisés. */
+  /** JSON array d'emails normalisés (vide pour un lien public). */
   allowed_emails: string;
   created_at: number;
+  /** 1 = lien public : quiconque a le lien entre, sans saisir d'e-mail. */
+  public: number;
+  /** Fin de validité (ms), ou null = sans expiration. */
+  expires_at: number | null;
+};
+
+/** Durées proposées pour un lien public, en jours (null = sans expiration). */
+export const PUBLIC_LINK_DAYS = [1, 7, 30] as const;
+export const DEFAULT_PUBLIC_LINK_DAYS = 7;
+
+/** Partage tel que le reçoit l'UI admin. */
+export type ShareDto = {
+  token: string;
+  emails: string[];
+  created_at: number;
+  public: boolean;
+  expires_at: number | null;
+  expired: boolean;
 };
 
 /** Token de partage : 24 caractères URL-safe (le vrai secret d'un partage). */
@@ -32,8 +50,8 @@ export function normalizeEmails(emails: string[]): string[] {
 function insertShare(row: ShareRow): ShareRow {
   getDb()
     .prepare(
-      `INSERT INTO shares (token, file_id, folder_id, allowed_emails, created_at)
-       VALUES (@token, @file_id, @folder_id, @allowed_emails, @created_at)`,
+      `INSERT INTO shares (token, file_id, folder_id, allowed_emails, created_at, public, expires_at)
+       VALUES (@token, @file_id, @folder_id, @allowed_emails, @created_at, @public, @expires_at)`,
     )
     .run(row);
   return row;
@@ -47,6 +65,8 @@ export function createShare(fileId: string, emails: string[]): ShareRow {
     folder_id: null,
     allowed_emails: JSON.stringify(normalizeEmails(emails)),
     created_at: Date.now(),
+    public: 0,
+    expires_at: null,
   });
 }
 
@@ -58,7 +78,63 @@ export function createFolderShare(folderId: string, emails: string[]): ShareRow 
     folder_id: folderId,
     allowed_emails: JSON.stringify(normalizeEmails(emails)),
     created_at: Date.now(),
+    public: 0,
+    expires_at: null,
   });
+}
+
+/**
+ * Crée un LIEN PUBLIC vers un fichier ou un dossier : quiconque a le lien entre
+ * directement, sans e-mail. Le secret reste le jeton (144 bits) ; révocable, et
+ * à durée limitée si `days` est donné (null = sans expiration).
+ */
+export function createPublicShare(
+  target: { fileId: string } | { folderId: string },
+  days: number | null,
+): ShareRow {
+  const now = Date.now();
+  return insertShare({
+    token: generateToken(),
+    file_id: "fileId" in target ? target.fileId : null,
+    folder_id: "folderId" in target ? target.folderId : null,
+    allowed_emails: "[]",
+    created_at: now,
+    public: 1,
+    expires_at: days ? now + days * 24 * 60 * 60 * 1000 : null,
+  });
+}
+
+/** Lit la durée demandée pour un lien public (corps JSON `{ days }`). Renvoie
+ * les jours, null (sans expiration), ou undefined si la valeur est invalide. */
+export function parsePublicLinkDays(raw: unknown): number | null | undefined {
+  if (raw === null) return null;
+  if (raw === undefined) return DEFAULT_PUBLIC_LINK_DAYS;
+  return (PUBLIC_LINK_DAYS as readonly unknown[]).includes(raw)
+    ? (raw as number)
+    : undefined;
+}
+
+/** Le partage a-t-il expiré ? */
+export function isShareExpired(share: ShareRow, now: number = Date.now()): boolean {
+  return share.expires_at != null && share.expires_at <= now;
+}
+
+/** Partage utilisable (existant ET non expiré), ou undefined. */
+export function getActiveShare(token: string): ShareRow | undefined {
+  const share = getShare(token);
+  return share && !isShareExpired(share) ? share : undefined;
+}
+
+/** Forme envoyée à l'UI admin (liste des partages, réponse de création). */
+export function toShareDto(share: ShareRow, now: number = Date.now()): ShareDto {
+  return {
+    token: share.token,
+    emails: parseAllowedEmails(share),
+    created_at: share.created_at,
+    public: share.public === 1,
+    expires_at: share.expires_at,
+    expired: isShareExpired(share, now),
+  };
 }
 
 export function getShare(token: string): ShareRow | undefined {
