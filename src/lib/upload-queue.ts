@@ -7,17 +7,25 @@
  * Pas de reprise après rechargement (décision produit) : à la place, un
  * avertissement avant de quitter la page tant qu'un envoi tourne.
  *
- * Robustesse : la position fait foi CÔTÉ SERVEUR. Après tout échec (réseau,
- * 5xx, 408, 409, 423, chien de garde), on attend (backoff plafonné à 30 s,
- * réveil anticipé sur `online`), on vérifie que le fichier source est encore
- * lisible, puis on relit l'état par GET avant de renvoyer quoi que ce soit.
+ * Mode PARALLÈLE : chaque fichier a plusieurs morceaux numérotés en vol
+ * (`UPLOAD_PARALLEL_CHUNKS` « voies »), que le serveur écrit à leur place.
+ * Derrière Cloudflare (qui reçoit chaque morceau en entier avant de le
+ * transmettre), c'est ce qui recouvre les attentes au lieu de les additionner.
+ *
+ * Robustesse : ce que le serveur a reçu fait foi. Après tout échec (réseau,
+ * 5xx, 408, chien de garde), le morceau repart en tête de file ; la voie
+ * attend (backoff plafonné à 30 s, réveil anticipé sur `online`), vérifie que
+ * le fichier source est encore lisible et sonde le serveur avant de repartir.
  * Les réessais sont sans fin ; seuls 400/403/404/410/413/507 (ou un fichier
  * illisible) arrêtent l'envoi. */
 
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   UPLOAD_CHUNK_BYTES,
-  UPLOAD_OFFSET_HEADER,
+  UPLOAD_CHUNK_HEADER,
+  UPLOAD_PARALLEL_CHUNKS,
+  chunkCount,
+  chunkLength,
   type UploadInitResponse,
   type UploadStatus,
 } from "@/lib/upload-protocol";
@@ -43,13 +51,17 @@ export type UploadItem = {
   message?: string;
 };
 
-/** Envois simultanés (fichiers) ; les morceaux d'un fichier restent séquentiels. */
-const MAX_PARALLEL = 3;
+/** Morceaux en vol au total, tous fichiers confondus : 2 gros fichiers × 4
+ * voies, ou davantage de petits fichiers (une voie chacun) — sinon un lot de
+ * photos ne garderait que 2 requêtes en vol. */
+const MAX_IN_FLIGHT = 2 * UPLOAD_PARALLEL_CHUNKS;
+/** Fichiers ouverts en même temps, au plus. */
+const MAX_FILES = 6;
 /** Aucune progression pendant ce délai → on abandonne le morceau et on sonde. */
 const STALL_MS = 60_000;
 const MAX_BACKOFF_MS = 30_000;
-/** Échecs d'affilée tolérés quand le serveur répond mais que le morceau ne
- * passe pas (~6 min avec le backoff plafonné) avant de passer en erreur. */
+/** Échecs d'affilée tolérés (par voie) quand le serveur répond mais que les
+ * morceaux ne passent pas (~6 min avec le backoff plafonné) avant l'erreur. */
 const MAX_STUCK_RETRIES = 12;
 /** Fenêtre de la moyenne glissante du débit. */
 const SPEED_WINDOW_MS = 10_000;
@@ -63,16 +75,22 @@ type Job = {
   folderId: string | null;
   fingerprint: string;
   sessionId: string | null;
-  /** Octets confirmés par le serveur. */
+  /** Taille des morceaux, donnée par le serveur à l'ouverture. */
+  chunkSize: number;
+  /** Morceaux restant à envoyer (un morceau en échec y revient en tête). */
+  pending: number[];
+  /** Morceaux confirmés par le serveur. */
+  doneChunks: Set<number>;
+  /** Octets confirmés (somme des morceaux confirmés). */
   confirmed: number;
-  /** Octets du morceau en cours déjà partis (progression XHR). */
-  inFlight: number;
+  /** Progression des morceaux en vol (octets partis, par numéro). */
+  inFlight: Map<number, number>;
   state: UploadState;
   message?: string;
   canceled: boolean;
-  xhr: XMLHttpRequest | null;
-  /** Interrompt l'attente du backoff (annulation, retour du réseau). */
-  wake: (() => void) | null;
+  xhrs: Set<XMLHttpRequest>;
+  /** Attentes de backoff en cours (une par voie) : annulation, retour réseau. */
+  wakers: Set<() => void>;
   /** Exécution en cours de `runJob` (pour attendre sa fin à la déconnexion). */
   run: Promise<void> | null;
   samples: { t: number; bytes: number }[];
@@ -123,6 +141,12 @@ export function hasOpenUploadSessions(): boolean {
   return jobs.some(hasOpenSession);
 }
 
+function inFlightBytes(job: Job): number {
+  let total = 0;
+  for (const n of job.inFlight.values()) total += n;
+  return total;
+}
+
 function speedOf(job: Job): number | null {
   const s = job.samples;
   if (s.length < 2) return null;
@@ -138,7 +162,7 @@ function rebuild(): void {
     key: j.key,
     name: j.file.name,
     size: j.file.size,
-    sent: Math.min(j.file.size, j.confirmed + j.inFlight),
+    sent: Math.min(j.file.size, j.confirmed + inFlightBytes(j)),
     state: j.state,
     speed: j.state === "uploading" ? speedOf(j) : null,
     message: j.message,
@@ -160,10 +184,20 @@ function emit(immediate = false): void {
 
 function recordProgress(job: Job): void {
   const now = Date.now();
-  job.samples.push({ t: now, bytes: job.confirmed + job.inFlight });
+  const bytes = job.confirmed + inFlightBytes(job);
+  // Un morceau en échec sort du compte (ses octets seront renvoyés) : on
+  // repart d'une fenêtre neuve plutôt qu'afficher un débit négatif.
+  const last = job.samples[job.samples.length - 1];
+  if (last && bytes < last.bytes) job.samples = [];
+  job.samples.push({ t: now, bytes });
   while (job.samples.length > 2 && now - job.samples[0].t > SPEED_WINDOW_MS) {
     job.samples.shift();
   }
+}
+
+function abortAll(job: Job): void {
+  for (const xhr of job.xhrs) xhr.abort();
+  for (const wake of job.wakers) wake();
 }
 
 // ─── API ────────────────────────────────────────────────────────────────────
@@ -176,18 +210,29 @@ export function enqueueUploads(files: File[], folderId: string | null): void {
     if (jobs.some((j) => j.fingerprint === fingerprint && isActiveState(j.state))) {
       continue;
     }
+    // Un ancien essai en erreur du même fichier : le nouvel envoi le remplace
+    // (le serveur jette déjà sa session par empreinte) — sinon son « Réessayer »
+    // rouvrirait une session qui jetterait à son tour celle du nouvel envoi.
+    for (let i = jobs.length - 1; i >= 0; i--) {
+      if (jobs[i].fingerprint === fingerprint && jobs[i].state === "error") {
+        jobs.splice(i, 1);
+      }
+    }
     jobs.push({
       key: crypto.randomUUID(),
       file,
       folderId,
       fingerprint,
       sessionId: null,
+      chunkSize: UPLOAD_CHUNK_BYTES,
+      pending: [],
+      doneChunks: new Set(),
       confirmed: 0,
-      inFlight: 0,
+      inFlight: new Map(),
       state: "queued",
       canceled: false,
-      xhr: null,
-      wake: null,
+      xhrs: new Set(),
+      wakers: new Set(),
       run: null,
       samples: [],
     });
@@ -201,8 +246,7 @@ export function cancelUpload(key: string): void {
   const job = jobs.find((j) => j.key === key);
   if (!job) return;
   job.canceled = true;
-  job.xhr?.abort();
-  job.wake?.();
+  abortAll(job);
   // Session pas encore ouverte (POST en vol) : `runJob` la supprimera dès
   // qu'il en recevra l'id.
   if (job.sessionId && job.state !== "done") void deleteSession(job.sessionId);
@@ -230,8 +274,7 @@ export async function cancelAllUploads(): Promise<void> {
   const pending = jobs.filter((j) => j.state !== "done");
   for (const job of pending) {
     job.canceled = true;
-    job.xhr?.abort();
-    job.wake?.();
+    abortAll(job);
   }
   const ids = pending.flatMap((j) => (j.sessionId ? [j.sessionId] : []));
   const runs = pending.flatMap((j) => (j.run ? [j.run] : []));
@@ -247,11 +290,17 @@ export async function cancelAllUploads(): Promise<void> {
   await Promise.allSettled(ids.map(deleteSession));
 }
 
-/** Relance un envoi en erreur (repart de la position serveur si la session
- * existe encore, sinon de zéro). */
+/** Relance un envoi en erreur (repart des morceaux déjà reçus par le serveur si
+ * la session existe encore, sinon de zéro). */
 export function retryUpload(key: string): void {
   const job = jobs.find((j) => j.key === key);
   if (!job || job.state !== "error") return;
+  // Même fichier déjà relancé (ou envoyé) entre-temps : on ne le rouvre pas.
+  if (jobs.some((j) => j !== job && j.fingerprint === job.fingerprint)) {
+    jobs.splice(jobs.indexOf(job), 1);
+    emit(true);
+    return;
+  }
   job.state = "queued";
   job.message = undefined;
   emit(true);
@@ -268,14 +317,29 @@ export function clearFinishedUploads(): void {
 
 // ─── Moteur ─────────────────────────────────────────────────────────────────
 
+/** Voies qu'un fichier occupera (une par morceau, `UPLOAD_PARALLEL_CHUNKS` au plus). */
+function lanesFor(job: Job): number {
+  return Math.max(
+    1,
+    Math.min(UPLOAD_PARALLEL_CHUNKS, chunkCount(job.file.size, job.chunkSize)),
+  );
+}
+
 function pump(): void {
-  let running = jobs.filter(
+  const running = jobs.filter(
     (j) => j.state === "uploading" || j.state === "retrying",
-  ).length;
+  );
+  let files = running.length;
+  let lanes = running.reduce((n, j) => n + lanesFor(j), 0);
   for (const job of jobs) {
-    if (running >= MAX_PARALLEL) break;
     if (job.state !== "queued") continue;
-    running += 1;
+    // Dans l'ordre de la file : un gros fichier qui ne tient pas encore
+    // attend, les suivants aussi (pas de dépassement par les petits).
+    if (files >= MAX_FILES || (files > 0 && lanes + lanesFor(job) > MAX_IN_FLIGHT)) {
+      break;
+    }
+    files += 1;
+    lanes += lanesFor(job);
     job.state = "uploading";
     job.run = runJob(job);
   }
@@ -288,11 +352,11 @@ function sleep(job: Job, ms: number): Promise<void> {
   return new Promise((resolve) => {
     const done = () => {
       clearTimeout(timer);
-      job.wake = null;
+      job.wakers.delete(done);
       resolve();
     };
     const timer = setTimeout(done, ms);
-    job.wake = done;
+    job.wakers.add(done);
   });
 }
 
@@ -325,42 +389,49 @@ async function terminalMessage(res: Response): Promise<string> {
 
 type ChunkResult =
   | { kind: "ok"; status: UploadStatus }
-  | { kind: "http"; res: Response; offset: number | null }
+  | { kind: "http"; res: Response }
   | { kind: "network" }
   | { kind: "aborted" };
 
-/** Envoie un morceau par XHR (progression + abort), sous chien de garde. */
-function sendChunk(job: Job, offset: number, end: number): Promise<ChunkResult> {
+/** Envoie le morceau `index` par XHR (progression + abort), sous chien de garde. */
+function sendChunk(job: Job, index: number): Promise<ChunkResult> {
   return new Promise((resolve) => {
+    const start = index * job.chunkSize;
+    const end = Math.min(start + job.chunkSize, job.file.size);
     const xhr = new XMLHttpRequest();
-    job.xhr = xhr;
+    job.xhrs.add(xhr);
     let lastActivity = Date.now();
+    // Avant le premier octet, la requête peut attendre une connexion libre
+    // (HTTP/1.1 : 6 par hôte, moins que 2 fichiers × 4 voies) : délai doublé.
+    let started = false;
     let stalled = false;
     const watchdog = setInterval(() => {
-      if (Date.now() - lastActivity > STALL_MS) {
+      if (Date.now() - lastActivity > (started ? STALL_MS : 2 * STALL_MS)) {
         stalled = true;
         xhr.abort();
       }
     }, 5000);
     const finish = (r: ChunkResult) => {
       clearInterval(watchdog);
-      job.xhr = null;
-      job.inFlight = 0;
+      job.xhrs.delete(xhr);
+      job.inFlight.delete(index);
       resolve(r);
     };
 
     xhr.open("PUT", `/api/upload/sessions/${job.sessionId}`);
-    xhr.setRequestHeader(UPLOAD_OFFSET_HEADER, String(offset));
+    xhr.setRequestHeader(UPLOAD_CHUNK_HEADER, String(index));
     xhr.setRequestHeader("content-type", "application/octet-stream");
     xhr.upload.onprogress = (e) => {
       lastActivity = Date.now();
-      job.inFlight = e.loaded;
+      if (e.loaded > 0) started = true;
+      job.inFlight.set(index, e.loaded);
       recordProgress(job);
       emit();
     };
     // Corps parti : on laisse encore STALL_MS au serveur pour répondre.
     xhr.upload.onload = () => {
       lastActivity = Date.now();
+      started = true;
     };
     xhr.onload = () => {
       let body: UploadStatus | null = null;
@@ -369,21 +440,19 @@ function sendChunk(job: Job, offset: number, end: number): Promise<ChunkResult> 
       } catch {
         body = null;
       }
-      if (xhr.status === 200 && body && Number.isSafeInteger(body.offset)) {
+      if (xhr.status === 200 && body && typeof body.done === "boolean") {
         finish({ kind: "ok", status: body });
       } else {
-        const offset =
-          body && Number.isSafeInteger(body.offset) ? body.offset : null;
-        finish({ kind: "http", res: xhrToResponse(xhr), offset });
+        finish({ kind: "http", res: xhrToResponse(xhr) });
       }
     };
     xhr.onerror = () => finish({ kind: "network" });
     xhr.onabort = () => finish(stalled ? { kind: "network" } : { kind: "aborted" });
-    xhr.send(job.file.slice(offset, end));
+    xhr.send(job.file.slice(start, end));
   });
 }
 
-async function openSession(job: Job): Promise<string> {
+async function openSession(job: Job): Promise<UploadInitResponse> {
   const res = await fetch("/api/upload/sessions", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -393,12 +462,21 @@ async function openSession(job: Job): Promise<string> {
       mime: job.file.type || "application/octet-stream",
       folderId: job.folderId,
       lastModified: job.file.lastModified,
+      parallel: true,
     }),
     cache: "no-store",
     signal: AbortSignal.timeout(30_000),
   });
   if (res.status === 201) {
-    return ((await res.json()) as UploadInitResponse).id;
+    const init = (await res.json()) as UploadInitResponse;
+    if (!init.parallel) {
+      // Serveur pas encore à jour (onglet plus récent que le déploiement) : il
+      // vient d'ouvrir une session séquentielle, qui réserverait la place du
+      // fichier pendant 6 h si on ne la refermait pas.
+      await deleteSession(init.id);
+      throw new TerminalError("Serveur pas à jour : recharge la page et relance l'envoi.");
+    }
+    return init;
   }
   if (TERMINAL_STATUSES.has(res.status)) {
     throw new TerminalError(await terminalMessage(res));
@@ -406,14 +484,23 @@ async function openSession(job: Job): Promise<string> {
   throw new Error(`HTTP ${res.status}`); // réessayable
 }
 
-/** Relit l'état serveur : position, ou fin. null = serveur injoignable. */
-async function probe(job: Job): Promise<UploadStatus | null> {
+/** Relit l'état serveur (avec la liste des morceaux reçus si `detail`).
+ * null = serveur injoignable. */
+async function probe(job: Job, detail = false): Promise<UploadStatus | null> {
   try {
-    const res = await fetch(`/api/upload/sessions/${job.sessionId}`, {
-      cache: "no-store",
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (res.ok) return (await res.json()) as UploadStatus;
+    const res = await fetch(
+      `/api/upload/sessions/${job.sessionId}${detail ? "?detail=1" : ""}`,
+      { cache: "no-store", signal: AbortSignal.timeout(15_000) },
+    );
+    if (res.ok) {
+      const st = (await res.json()) as UploadStatus;
+      // Pas de `received` : serveur revenu à une version séquentielle
+      // (retour arrière) — rien ne passera, autant le dire tout de suite.
+      if (!st.done && typeof st.received !== "number") {
+        throw new TerminalError("Serveur pas à jour : recharge la page et relance l'envoi.");
+      }
+      return st;
+    }
     if (TERMINAL_STATUSES.has(res.status)) {
       throw new TerminalError(await terminalMessage(res));
     }
@@ -424,15 +511,16 @@ async function probe(job: Job): Promise<UploadStatus | null> {
   }
 }
 
-/** Le prochain morceau du fichier source est-il encore lisible (disque
+/** Le morceau `index` du fichier source est-il encore lisible (disque
  * débranché, fichier modifié ou déplacé depuis sa sélection → NotReadableError) ?
  * On lit le morceau ENTIER : une erreur de lecture plus loin dans la tranche
  * ferait sinon échouer chaque PUT comme une simple coupure réseau. */
-async function assertReadable(job: Job, offset: number): Promise<void> {
-  if (offset >= job.file.size) return;
+async function assertReadable(job: Job, index: number): Promise<void> {
+  const start = index * job.chunkSize;
+  if (start >= job.file.size) return;
   try {
     await job.file
-      .slice(offset, Math.min(offset + UPLOAD_CHUNK_BYTES, job.file.size))
+      .slice(start, Math.min(start + job.chunkSize, job.file.size))
       .arrayBuffer();
   } catch {
     throw new TerminalError(
@@ -441,47 +529,178 @@ async function assertReadable(job: Job, offset: number): Promise<void> {
   }
 }
 
-function markRetrying(job: Job, message: string): void {
-  job.state = "retrying";
-  job.message = message;
-  job.samples = [];
-  emit(true);
+/** Repart des morceaux que le serveur a déjà (après une erreur, un « Réessayer »). */
+function resyncFrom(job: Job, received: number[]): void {
+  const total = chunkCount(job.file.size, job.chunkSize);
+  job.doneChunks = new Set(received.filter((i) => i >= 0 && i < total));
+  job.confirmed = 0;
+  for (const i of job.doneChunks) {
+    job.confirmed += chunkLength(i, job.file.size, job.chunkSize);
+  }
+  job.pending = [];
+  for (let i = 0; i < total; i++) if (!job.doneChunks.has(i)) job.pending.push(i);
+  // Tout est reçu mais rien n'est finalisé (finalisation en échec, disque
+  // plein…) : seul un PUT finalise → on renvoie le dernier morceau (idempotent).
+  if (job.pending.length === 0 && total > 0) job.pending.push(total - 1);
+}
+
+/** État partagé par les voies d'un même fichier. */
+type JobRun = {
+  attempt: number;
+  stuck: number;
+  /** Voies en attente de réessai. */
+  retrying: number;
+  /** Voies encore en cours : « reconnexion » seulement si TOUTES attendent
+   * (sinon d'autres voies avancent, l'envoi n'est pas bloqué). */
+  active: number;
+  done: boolean;
+  terminal: TerminalError | null;
+};
+
+/** Erreur terminale : on la note (la première gagne) et on arrête TOUTES les
+ * voies tout de suite — sinon l'erreur n'apparaîtrait qu'après le morceau en
+ * vol le plus lent, envoyé pour rien. */
+function stop(job: Job, run: JobRun, err: TerminalError): void {
+  run.terminal ??= err;
+  abortAll(job);
+}
+
+function setRetrying(job: Job, run: JobRun, delta: number): void {
+  run.retrying += delta;
+  const stalled = run.retrying > 0 && run.retrying >= run.active;
+  if (stalled && job.state !== "retrying") {
+    job.state = "retrying";
+    job.message = "Connexion perdue — reprise automatique…";
+    job.samples = [];
+    emit(true);
+  } else if (!stalled && job.state === "retrying") {
+    job.state = "uploading";
+    job.message = undefined;
+    emit(true);
+  }
+}
+
+/**
+ * Une VOIE d'envoi : prend le prochain morceau de la file, l'envoie, recommence.
+ * Plusieurs voies tournent en même temps sur un fichier. Un morceau en échec
+ * revient en tête de file (une autre voie peut le reprendre) et la voie attend
+ * (backoff), vérifie la source et sonde le serveur avant de repartir.
+ */
+async function lane(job: Job, run: JobRun): Promise<void> {
+  for (;;) {
+    if (job.canceled || run.done || run.terminal) return;
+    const index = job.pending.shift();
+    if (index === undefined) return;
+    const r = await sendChunk(job, index);
+    if (job.canceled || run.done || run.terminal) return;
+
+    if (r.kind === "ok") {
+      if (!job.doneChunks.has(index)) {
+        job.doneChunks.add(index);
+        job.confirmed += chunkLength(index, job.file.size, job.chunkSize);
+      }
+      run.attempt = 0;
+      run.stuck = 0;
+      if (r.status.done) {
+        run.done = true;
+        abortAll(job); // les autres voies n'ont plus rien d'utile en vol
+        return;
+      }
+      continue;
+    }
+    // NB : un « aborted » ici ne vient PAS d'une annulation (déjà traitée
+    // ci-dessus) mais du navigateur (navigation vers un téléchargement sous
+    // Firefox, touche Échap…) → réessayable comme une coupure réseau.
+    if (r.kind === "http") {
+      if (r.res.status === 410) {
+        stop(job, run, new TerminalError("Envoi annulé côté serveur."));
+        return;
+      }
+      if (TERMINAL_STATUSES.has(r.res.status)) {
+        stop(job, run, new TerminalError(await terminalMessage(r.res)));
+        return;
+      }
+    }
+
+    // Échec réessayable : le morceau repart en tête de file, la voie attend.
+    job.pending.unshift(index);
+    setRetrying(job, run, +1);
+    try {
+      for (;;) {
+        await sleep(job, backoff(run.attempt++));
+        if (job.canceled || run.done || run.terminal) return;
+        await assertReadable(job, index);
+        const st = await probe(job);
+        if (!st) continue; // toujours injoignable
+        if (st.done) {
+          run.done = true;
+          abortAll(job);
+          return;
+        }
+        // Le serveur répond mais les morceaux ne passent plus : au-delà d'un
+        // certain nombre d'échecs d'affilée, ce n'est plus une coupure réseau
+        // passagère → on s'arrête et on le dit (« Réessayer » repart d'ici).
+        // Seuil partagé par les voies encore actives (~12 échecs chacune).
+        run.stuck += 1;
+        if (run.stuck >= MAX_STUCK_RETRIES * Math.max(1, run.active)) {
+          stop(
+            job,
+            run,
+            new TerminalError(
+              "L'envoi échoue alors que le serveur répond. Réessaie ; si ça persiste, recharge la page et relance l'envoi.",
+            ),
+          );
+          return;
+        }
+        break;
+      }
+    } catch (err) {
+      if (err instanceof TerminalError) {
+        stop(job, run, err);
+        return;
+      }
+      throw err;
+    } finally {
+      setRetrying(job, run, -1);
+    }
+  }
 }
 
 async function runJob(job: Job): Promise<void> {
   let attempt = 0;
-  /** Échecs d'affilée alors que le serveur répond et que rien n'avance. */
-  let stuck = 0;
   try {
-    // Ouverture de la session (un nouvel essai après erreur repart de la
-    // position serveur si la session existe encore).
+    // Nouvel essai après erreur : on repart des morceaux que le serveur a
+    // déjà, si la session existe encore.
     if (job.sessionId) {
-      const st = await probe(job).catch((err) => {
+      const st = await probe(job, true).catch((err) => {
         if (err instanceof TerminalError) return "gone" as const;
         throw err;
       });
       if (st === "gone") {
         job.sessionId = null;
-        job.confirmed = 0;
-      } else if (st) {
-        job.confirmed = st.offset;
-        if (st.done) return complete(job);
+      } else if (st?.done) {
+        return complete(job);
+      } else if (st?.receivedChunks) {
+        resyncFrom(job, st.receivedChunks);
       }
     }
     while (!job.sessionId) {
       if (job.canceled) return;
       try {
-        const id = await openSession(job);
+        const init = await openSession(job);
         if (job.canceled) {
           // Annulé pendant l'ouverture : personne d'autre ne connaît cet id.
-          await deleteSession(id);
+          await deleteSession(init.id);
           return;
         }
-        job.sessionId = id;
-        job.confirmed = 0;
+        job.sessionId = init.id;
+        job.chunkSize = init.chunkSize;
+        resyncFrom(job, []);
       } catch (err) {
         if (err instanceof TerminalError) throw err;
-        markRetrying(job, "Serveur injoignable — nouvel essai…");
+        job.state = "retrying";
+        job.message = "Serveur injoignable — nouvel essai…";
+        emit(true);
         await sleep(job, backoff(attempt++));
       }
     }
@@ -489,64 +708,40 @@ async function runJob(job: Job): Promise<void> {
     job.message = undefined;
     emit(true);
 
+    const lanes = Math.max(1, Math.min(UPLOAD_PARALLEL_CHUNKS, job.pending.length));
+    const run: JobRun = {
+      attempt: 0,
+      stuck: 0,
+      retrying: 0,
+      active: lanes,
+      done: false,
+      terminal: null,
+    };
+    await Promise.all(
+      Array.from({ length: lanes }, () =>
+        lane(job, run).finally(() => {
+          run.active -= 1;
+          if (!job.canceled) setRetrying(job, run, 0); // réévalue l'état
+        }),
+      ),
+    );
+    if (job.canceled) return;
+    if (run.terminal) throw run.terminal;
+    if (run.done) return complete(job);
+
+    // Toutes les voies ont fini sans « terminé » (cas limite) : on sonde, puis
+    // on renvoie ce qui manque — ou le dernier morceau si tout est reçu mais
+    // pas finalisé (cf. resyncFrom).
     for (;;) {
+      const st = await probe(job, true);
+      if (st?.done) return complete(job);
+      if (st?.receivedChunks) {
+        resyncFrom(job, st.receivedChunks);
+        job.state = "queued";
+        return;
+      }
       if (job.canceled) return;
-      const offset = job.confirmed;
-      const end = Math.min(offset + UPLOAD_CHUNK_BYTES, job.file.size);
-      const r = await sendChunk(job, offset, end);
-      if (job.canceled) return;
-
-      if (r.kind === "ok") {
-        job.confirmed = r.status.offset;
-        attempt = 0;
-        stuck = 0;
-        if (job.state !== "uploading") {
-          job.state = "uploading";
-          job.message = undefined;
-          emit(true);
-        }
-        if (r.status.done) return complete(job);
-        continue;
-      }
-      // NB : un « aborted » ici ne vient PAS d'une annulation (déjà traitée
-      // ci-dessus) mais du navigateur (navigation vers un téléchargement sous
-      // Firefox, touche Échap…) → réessayable comme une coupure réseau.
-      if (r.kind === "http") {
-        if (r.res.status === 410) {
-          throw new TerminalError("Envoi annulé côté serveur.");
-        }
-        if (TERMINAL_STATUSES.has(r.res.status)) {
-          throw new TerminalError(await terminalMessage(r.res));
-        }
-        if (r.res.status === 409 && r.offset !== null) {
-          // Position désynchronisée : le serveur donne la bonne.
-          job.confirmed = r.offset;
-          continue;
-        }
-      }
-
-      // Échec réessayable : attendre, vérifier la source, relire l'état.
-      for (;;) {
-        markRetrying(job, "Connexion perdue — reprise automatique…");
-        await sleep(job, backoff(attempt++));
-        if (job.canceled) return;
-        await assertReadable(job, job.confirmed);
-        const st = await probe(job);
-        if (!st) continue; // toujours injoignable
-        if (st.done) return complete(job);
-        if (st.busy) continue; // l'ancien morceau finit côté serveur
-        // Le serveur répond mais le morceau n'avance plus : au-delà d'un
-        // certain nombre d'échecs d'affilée, ce n'est plus une coupure réseau
-        // passagère → on s'arrête et on le dit (« Réessayer » repart d'ici).
-        stuck = st.offset > job.confirmed ? 0 : stuck + 1;
-        if (stuck >= MAX_STUCK_RETRIES) {
-          throw new TerminalError(
-            "L'envoi échoue alors que le serveur répond. Réessaie ; si ça persiste, recharge la page et relance l'envoi.",
-          );
-        }
-        job.confirmed = st.offset;
-        break;
-      }
+      await sleep(job, backoff(attempt++));
     }
   } catch (err) {
     if (job.canceled) return;
@@ -556,8 +751,7 @@ async function runJob(job: Job): Promise<void> {
     job.samples = [];
     emit(true);
   } finally {
-    job.xhr = null;
-    job.inFlight = 0;
+    job.inFlight.clear();
     if (!job.canceled) pump();
   }
 }
@@ -629,7 +823,7 @@ function onVisibility(): void {
 
 /** Réveille les envois en attente de réessai dès que le réseau revient. */
 function onOnline(): void {
-  for (const job of jobs) job.wake?.();
+  for (const job of jobs) for (const wake of [...job.wakers]) wake();
 }
 
 let cleanupOnHide = false;
