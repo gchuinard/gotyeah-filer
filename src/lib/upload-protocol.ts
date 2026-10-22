@@ -24,8 +24,30 @@ export const UPLOAD_CHUNK_BYTES = 16 * 1024 * 1024;
  * sous les 25 Mo de NPM). */
 export const UPLOAD_MAX_CHUNK_BYTES = 24 * 1024 * 1024;
 
-/** En-tête portant l'offset auquel le client pense écrire ce morceau. */
+/** En-tête portant l'offset auquel le client pense écrire ce morceau
+ * (mode SÉQUENTIEL, historique : un morceau à la fois, ajouté en fin). */
 export const UPLOAD_OFFSET_HEADER = "x-upload-offset";
+
+/** En-tête portant le NUMÉRO du morceau (mode PARALLÈLE) : le morceau `i`
+ * couvre [i × chunkSize, min((i+1) × chunkSize, size)[ et s'écrit à sa place,
+ * dans n'importe quel ordre. */
+export const UPLOAD_CHUNK_HEADER = "x-upload-chunk";
+
+/** Morceaux d'un même fichier envoyés en même temps (mode parallèle). Derrière
+ * Cloudflare, qui reçoit chaque morceau EN ENTIER avant de le transmettre,
+ * c'est ce qui recouvre les attentes au lieu de les additionner (mesuré :
+ * séquentiel ≈ 13 Mio/s depuis Chrome, la liaison en permet bien plus). */
+export const UPLOAD_PARALLEL_CHUNKS = 4;
+
+/** Nombre de morceaux d'un fichier. */
+export function chunkCount(size: number, chunkSize: number): number {
+  return Math.ceil(size / chunkSize);
+}
+
+/** Taille exacte du morceau `index` (le dernier est souvent plus court). */
+export function chunkLength(index: number, size: number, chunkSize: number): number {
+  return Math.min(chunkSize, size - index * chunkSize);
+}
 
 /** Forme d'un id de session (= `crypto.randomUUID()`), vérifiée AVANT de
  * construire le moindre chemin disque à partir de l'URL. */
@@ -41,18 +63,29 @@ export type UploadInitRequest = {
   /** `File.lastModified` : sert d'empreinte avec nom + taille, pour remplacer
    * un envoi abandonné du même fichier au lieu de garder deux partiels. */
   lastModified: number;
+  /** Mode parallèle (morceaux numérotés). Absent/false = mode séquentiel. */
+  parallel?: boolean;
 };
 
 /** Réponse 201 du POST `/api/upload/sessions`. */
-export type UploadInitResponse = { id: string; chunkSize: number };
+export type UploadInitResponse = {
+  id: string;
+  chunkSize: number;
+  parallel: boolean;
+};
 
 /** État d'un envoi (GET, et corps des réponses PUT / 409). `done` : le fichier
  * est complet et enregistré — son id est celui de la session. */
 export type UploadStatus = {
+  /** Octets reçus (mode parallèle : morceaux complets reçus × taille). */
   offset: number;
   size: number;
   done: boolean;
   /** Un morceau est en cours d'écriture pour cette session (GET seulement). */
   busy?: boolean;
+  /** Mode parallèle : nombre de morceaux reçus en entier. */
+  received?: number;
+  /** Mode parallèle, GET `?detail=1` : numéros des morceaux reçus. */
+  receivedChunks?: number[];
   error?: string;
 };

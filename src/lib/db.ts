@@ -41,6 +41,11 @@ function createDb(): Database.Database {
 
   const db = new Database(join(dir, "filer.db"));
   db.pragma("journal_mode = WAL");
+  // FULL (et non NORMAL, le défaut de better-sqlite3 en WAL) : un COMMIT n'est
+  // rendu qu'une fois sur disque. Sinon une coupure de courant juste après une
+  // finalisation d'envoi pourrait perdre la ligne `files` d'un fichier de
+  // 100 Go que le client a vu « terminé ». Les écritures sont rares : coût nul.
+  db.pragma("synchronous = FULL");
   db.pragma("busy_timeout = 5000");
 
   db.exec(`
@@ -87,7 +92,18 @@ function createDb(): Database.Database {
       updated_at    INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_uploads_fingerprint ON uploads(fingerprint);
+
+    -- Mode parallèle : morceaux REÇUS EN ENTIER d'un envoi (cf. uploads.ts).
+    -- Un morceau n'y entre qu'une fois écrit et le fichier refermé.
+    CREATE TABLE IF NOT EXISTS upload_chunks (
+      upload_id TEXT NOT NULL,
+      idx       INTEGER NOT NULL,
+      PRIMARY KEY (upload_id, idx)
+    ) WITHOUT ROWID;
   `);
+  // Mode parallèle (ajouté après coup) : taille de morceau de la session ;
+  // NULL = mode séquentiel historique (octets ajoutés en fin de partiel).
+  ensureColumn(db, "uploads", "chunk_size", "INTEGER");
   // NB : l'index sur shares.folder_id est créé APRÈS ensurePolymorphicShares,
   // car une base historique n'a pas encore cette colonne à ce stade.
 

@@ -56,7 +56,10 @@ export async function POST(request: NextRequest) {
     return json({ error: "Requête invalide." }, 400);
   }
 
-  const { name, size, mime, folderId, lastModified } = body;
+  const { name, size, mime, folderId, lastModified, parallel } = body;
+  // Mode parallèle (morceaux numérotés, écrits à leur place) si le client le
+  // demande ; sinon mode séquentiel historique (onglet chargé avant la mise à jour).
+  const chunkSize = parallel === true ? UPLOAD_CHUNK_BYTES : null;
   if (typeof name !== "string" || name.trim() === "") {
     return json({ error: "Nom de fichier manquant." }, 400);
   }
@@ -126,13 +129,18 @@ export async function POST(request: NextRequest) {
         fingerprint,
         created_at: now,
         updated_at: now,
+        chunk_size: chunkSize,
       });
     } catch {
       await rm(partPath(id), { force: true }).catch(() => {});
       return json({ error: "Impossible d'ouvrir l'envoi." }, 500);
     }
 
-    const res: UploadInitResponse = { id, chunkSize: UPLOAD_CHUNK_BYTES };
+    const res: UploadInitResponse = {
+      id,
+      chunkSize: UPLOAD_CHUNK_BYTES,
+      parallel: chunkSize !== null,
+    };
     return json(res, 201);
   });
 }
