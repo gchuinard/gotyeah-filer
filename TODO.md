@@ -200,3 +200,15 @@
       `frame-ancestors 'none'`) → `SAMEORIGIN` / `'self'`.
       **Ops** : `MAX_UPLOAD_MB=102400` dans le `.env` du Pi AVANT le déploiement ; vérifier la
       place disque ; exclure `/data/uploads` des sauvegardes ; ne pas déployer pendant un envoi.
+      **Débit (22/10)** : upload via Cloudflare plafonné à 6 Mio/s — cause : NPM
+      `proxy_request_buffering off` sur `/api/upload` + HTTP/2 Cloudflare→nginx (petite
+      fenêtre par aller-retour). Passé à `on` → 35-44 Mio/s. CSP déplacée dans l'app
+      (`next.config.ts`, prod), retirée de la Custom Location `/` de NPM.
+- [x] **Lien public** (partage sans e-mail, branche `feat/lien-public`). Un partage de fichier
+      OU de dossier peut être créé « public » : `/s/<token>` s'ouvre sans saisir d'e-mail (la
+      Route Handler `/s/<token>/entrer` pose la même session invité que la porte), durée 1 / 7
+      (défaut) / 30 jours ou sans expiration, vérifiée partout (`getActiveShare`), révocable,
+      pages `noindex`. UI : bloc « Lien public » (durée + « Créer et copier le lien ») dans la
+      fenêtre Partager. Colonnes `shares.public` / `shares.expires_at` ajoutées au boot.
+      30 tests curl (entrée, Range, cloisonnement, cookies bloqués, admin préservé, expiration,
+      révocation, dossier + zip, partage e-mail inchangé).

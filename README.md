@@ -33,6 +33,7 @@ range dans des dossiers, puis on les partage à des proches via un lien `/s/{tok
   (images / audio / vidéo / fichiers), **recherche** par nom, **tri** (nom / date / taille),
   **multi‑sélection** (clic, shift‑clic) → actions groupées (déplacer / supprimer / télécharger
   en **.zip**), et **navigation au clavier** (↑/↓ fichiers, ←/→ dossiers, Entrée/Espace plein écran).
+- **Lien public** : depuis « Partager », un clic crée un lien **sans e-mail** (valable 1, 7 ou 30 jours, ou sans expiration) et le copie : il suffit de l'envoyer. Révocable comme les autres partages.
 - **Invité** : via un lien `/s/{token}`, saisit son email ; s'il est autorisé pour ce
   partage (ou s'il est admin), il accède au contenu partagé. Pour un **partage de fichier**,
   il voit/lit le fichier + download (**reprenable** : un téléchargement coupé repart là où il
